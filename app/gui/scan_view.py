@@ -100,6 +100,10 @@ class ScanView(QWidget):
         self._scan_btn.setEnabled(True)
         self._status.setText("已选择目录，点击「开始扫描」")
 
+    def folder(self) -> str:
+        """返回当前选择的扫描目录（空串表示尚未选择）。"""
+        return self._folder_edit.text()
+
     def start_scan(self) -> None:
         """启动后台扫描；正在扫描时忽略重复调用。"""
         folder = self._folder_edit.text()

@@ -10,6 +10,7 @@
 #   file_tags          文件—标签关联（含置信度）
 #   operations         组织操作记录（撤销用）
 #   training_feedback  用户修正样本（个性化训练用）
+#   rules              用户定义的组织规则（序列化 JSON）
 #
 # 大致结构：
 #   SCHEMA: dict[str, str]  # 表名 → CREATE TABLE 语句
@@ -74,6 +75,16 @@ SCHEMA: dict[str, str] = {
             tag_id     INTEGER NOT NULL REFERENCES tags(id)  ON DELETE CASCADE,
             accepted   INTEGER NOT NULL DEFAULT 1,
             created_at TEXT    NOT NULL
+        )
+    """,
+    # 用户定义的组织规则（Phase 5）
+    "rules": """
+        CREATE TABLE IF NOT EXISTS rules (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT    NOT NULL DEFAULT '默认规则',
+            rule_json  TEXT    NOT NULL,
+            created_at TEXT    NOT NULL,
+            updated_at TEXT    NOT NULL
         )
     """,
 }

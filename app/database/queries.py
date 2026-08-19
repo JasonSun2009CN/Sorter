@@ -51,6 +51,25 @@ def get_file_tags(db: Database, file_id: int) -> list[sqlite3.Row]:
     )
 
 
+def get_tags_by_path(db: Database) -> dict[str, set[str]]:
+    """一次查询返回全库 文件路径 → 标签名集合（供规则规划批量使用，避免 N+1）。
+
+    只包含当前活跃的 file_tags 行（被拒绝的标签行已删除）。
+    """
+    rows = db.query(
+        """
+        SELECT f.path AS path, t.name AS tag
+          FROM files f
+          JOIN file_tags ft ON ft.file_id = f.id
+          JOIN tags  t      ON t.id = ft.tag_id
+        """
+    )
+    result: dict[str, set[str]] = {}
+    for row in rows:
+        result.setdefault(row["path"], set()).add(row["tag"])
+    return result
+
+
 def _tag_id(db: Database, tag: str) -> int | None:
     """按名称查标签 id；不存在返回 None。"""
     rows = db.query("SELECT id FROM tags WHERE name = ?", (tag,))

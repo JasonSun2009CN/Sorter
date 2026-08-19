@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.database import Database
+from app.database.rules import save_rule
 from app.gui.preview_view import PreviewView
 from app.gui.rules_view import RulesView
 from app.gui.scan_view import ScanView
@@ -44,6 +45,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._db = db
         self._thread = None
+        self._last_files: list = []
         self._setup_menu()
         self._setup_stacked_widget()
         self.resize(1100, 720)
@@ -75,7 +77,7 @@ class MainWindow(QMainWindow):
     def _setup_stacked_widget(self) -> None:
         self.scan_view = ScanView(self._db.path)
         self.tag_view = TagView(self._db)
-        self.rules_view = RulesView()
+        self.rules_view = RulesView(self._db)
         self.preview_view = PreviewView()
 
         self.stack = QStackedWidget()
@@ -87,6 +89,7 @@ class MainWindow(QMainWindow):
 
         self.scan_view.files_scanned.connect(self._on_scan_finished)
         self.tag_view.finished.connect(self._on_tag_review_finished)
+        self.rules_view.finished.connect(self._on_rules_ready)
         self.switch_view(0)
 
     # ---- 工作流接线 ----
@@ -110,6 +113,7 @@ class MainWindow(QMainWindow):
 
     def _on_tagging_finished(self, files: list, n_system: int, n_learned: int) -> None:
         self._thread = None
+        self._last_files = files
         self.tag_view.load_files(files)
         self.switch_view(1)
         self.statusBar().showMessage(
@@ -117,7 +121,14 @@ class MainWindow(QMainWindow):
         )
 
     def _on_tag_review_finished(self) -> None:
-        self.switch_view(2)  # 规则占位页（Phase 5）
+        self.rules_view.load_files(self._last_files, root=self.scan_view.folder())
+        self.switch_view(2)  # 组织规则（Phase 5）
+
+    def _on_rules_ready(self) -> None:
+        rule = self.rules_view.current_rule()
+        if rule.levels:
+            save_rule(self._db, self.rules_view.rule_name(), rule)
+        self.switch_view(3)  # 预览占位页（Phase 6）
 
     def _on_worker_error(self, message: str) -> None:
         self._thread = None
@@ -129,7 +140,7 @@ class MainWindow(QMainWindow):
     def switch_view(self, index: int) -> None:
         """切换到指定视图并给出状态栏提示。"""
         self.stack.setCurrentIndex(index)
-        hints = {0: "① 选择文件夹并扫描", 1: "② 审核标签", 2: "③ 组织规则（下一阶段）", 3: "④ 预览（下一阶段）"}
+        hints = {0: "① 选择文件夹并扫描", 1: "② 审核标签", 2: "③ 定义组织规则", 3: "④ 预览（下一阶段）"}
         self.statusBar().showMessage(hints.get(index, ""))
 
     def _show_about(self) -> None:
