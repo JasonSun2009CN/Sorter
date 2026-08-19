@@ -1,18 +1,21 @@
 # =============================================================================
-# app/gui/preview_view.py —— 变更预览视图（工作流步骤 ④，Phase 6）
+# app/gui/preview_view.py —— 变更预览视图（工作流步骤 ④）
 #
 # 作用：
-#   把 Phase 6 生成的 PreviewReport 渲染成清晰的 old→new 清单，
-#   并分开展示冲突与警告 —— 应用变更前的安全检查。本视图只读，不执行。
+#   把 PreviewReport 渲染成**文件树**（目录结构 → 文件）供用户确认，
+#   并分开展示冲突与警告。自动整理模式下顶部提供「分类方式」选择
+#   （标签 / 类型 / 年份 / 扩展名），变化时发出 dimensions_changed 重新生成。
+#   本视图只读，不执行。
 #
 # 结构：
 #   class PreviewView(QWidget)
-#       load_preview(report, root=None)   # 渲染报告（公开 API，可离屏测试）
-#       clear()                           # 回到空态
-#       back 信号                          # 「← 返回规则」
+#       load_preview(report, root=None, dimensions=None)
+#       show_dimensions(visible)          # 自动模式显示分类方式选择行
+#       clear()
+#       back / apply_requested / dimensions_changed 信号
 # =============================================================================
 
-"""变更预览视图：展示移动清单、冲突与警告（干跑）。"""
+"""变更预览视图：文件树 + 分类方式选择 + 冲突 / 警告。"""
 
 from __future__ import annotations
 
@@ -21,34 +24,46 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QCheckBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QListWidget,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from app.core.autoplan import DIM_EXTENSION, DIM_TAG, DIM_TYPE, DIM_YEAR
 from app.core.preview import PreviewReport
 from app.gui.theme import DANGER
 
-_COLUMNS = ["文件名", "当前目录", "目标目录", "状态"]
+# 分类方式：固定顺序，勾选即作为目录层级
+_DIMENSIONS_ORDER = (DIM_TAG, DIM_TYPE, DIM_YEAR, DIM_EXTENSION)
+_DIMENSION_LABELS = {
+    DIM_TAG: "按标签",
+    DIM_TYPE: "按类型",
+    DIM_YEAR: "按年份",
+    DIM_EXTENSION: "按扩展名",
+}
 
 
 class PreviewView(QWidget):
-    """工作流第 ④ 步：预览变更。"""
+    """工作流第 ④ 步：预览变更（文件树确认）。"""
 
-    back = Signal()             # 「← 返回规则」
-    apply_requested = Signal()  # 「应用变更」被点击
+    back = Signal()             # 「← 返回」
+    apply_requested = Signal()  # 「应用变更」
+    dimensions_changed = Signal(list)  # 分类方式变化 → [tag, type, ...]
 
     def __init__(self) -> None:
         super().__init__()
         self._report: PreviewReport | None = None
         self._root: Path | None = None
+        self._updating = False
+        self._dimensions: list[str] = [DIM_TAG, DIM_TYPE]
         self._build_ui()
+        self._set_dimensions(self._dimensions)  # 同步默认勾选
         self.clear()
 
     # ---- 界面 ----
@@ -57,10 +72,26 @@ class PreviewView(QWidget):
         header = QLabel("④ 变更预览")
         header.setStyleSheet("font-size:16px; font-weight:600;")
 
+        # 分类方式行（自动整理模式显示）
+        self._dim_row = QWidget()
+        dim_row = QHBoxLayout(self._dim_row)
+        dim_row.setContentsMargins(0, 0, 0, 0)
+        dim_row.addWidget(QLabel("分类方式："))
+        self._dim_checkboxes: dict[str, QCheckBox] = {}
+        for dim in _DIMENSIONS_ORDER:
+            cb = QCheckBox(_DIMENSION_LABELS[dim])
+            cb.stateChanged.connect(self._on_dim_toggled)
+            self._dim_checkboxes[dim] = cb
+            dim_row.addWidget(cb)
+        dim_row.addStretch(1)
+
         self._summary = QLabel()
         self._summary.setWordWrap(True)
 
-        self._table = self._make_table()
+        self._tree = QTreeWidget()
+        self._tree.setHeaderHidden(True)
+        self._tree.setSelectionMode(QTreeWidget.NoSelection)
+        self._tree.setFocusPolicy(Qt.NoFocus)
 
         # 冲突面板
         self._conflicts_title = QLabel("冲突（以下文件不会执行）")
@@ -88,7 +119,7 @@ class PreviewView(QWidget):
         self._empty_hint.setAlignment(Qt.AlignCenter)
         self._empty_hint.setStyleSheet("color:#64748B; font-size:15px;")
 
-        self._back_btn = QPushButton("← 返回规则")
+        self._back_btn = QPushButton("← 返回")
         self._back_btn.setObjectName("ghost")
         self._back_btn.clicked.connect(self.back.emit)
 
@@ -105,42 +136,37 @@ class PreviewView(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(header)
+        layout.addWidget(self._dim_row)
         layout.addWidget(self._summary)
-        layout.addWidget(self._table, 1)
+        layout.addWidget(self._tree, 1)
         layout.addWidget(self._conflicts_panel)
         layout.addWidget(self._warnings_panel)
         layout.addWidget(self._empty_hint)
         layout.addLayout(bottom)
 
-    @staticmethod
-    def _make_table() -> QTableWidget:
-        """预览专用表格：目录两列弹性伸缩，只读无选中。"""
-        table = QTableWidget(0, len(_COLUMNS))
-        table.setHorizontalHeaderLabels(_COLUMNS)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
-        table.setSelectionMode(QTableWidget.NoSelection)  # 防 QSS 选中色覆盖冲突红字
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.verticalHeader().setVisible(False)
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        table.setColumnWidth(0, 240)
-        table.setColumnWidth(3, 90)
-        return table
-
     # ---- 对外接口 ----
 
-    def load_preview(self, report: PreviewReport, root: "str | Path | None" = None) -> None:
-        """渲染一次干跑报告；moves 为空则显示空态。"""
+    def load_preview(
+        self,
+        report: PreviewReport,
+        root: "str | Path | None" = None,
+        dimensions: list[str] | None = None,
+    ) -> None:
+        """渲染一次干跑报告为文件树；moves 为空则显示空态。
+
+        ``dimensions`` 非空时同步勾选状态（不触发重新生成）。
+        """
         self._report = report
         self._root = Path(root).expanduser().resolve() if root else None
+        if dimensions is not None:
+            self._set_dimensions(dimensions)
         summary = report.summary
         if summary["total"] == 0:
             self.clear()
             return
 
-        self._apply_btn.setEnabled(bool(report.safe_moves))
         self._empty_hint.setVisible(False)
-        self._table.setVisible(True)
+        self._tree.setVisible(True)
         self._summary.setVisible(True)
 
         parts = [f"将移动 {summary['total']} 个文件"]
@@ -151,27 +177,8 @@ class PreviewView(QWidget):
         breakdown = " · ".join(f"{k} {v}" for k, v in summary["by_reason"].items())
         self._summary.setText(" · ".join(parts) + (f"\n{breakdown}" if breakdown else ""))
 
-        blocked = report.blocked_sources
-        self._table.setRowCount(0)
-        for m in report.moves:
-            conflicted = m.source in blocked
-            cells = [
-                m.source.name,
-                self._rel(m.source.parent),
-                m.reason or self._rel(m.target.parent),
-                "⚠ 冲突" if conflicted else "✓ 将移动",
-            ]
-            row = self._table.rowCount()
-            self._table.insertRow(row)
-            for col, text in enumerate(cells):
-                item = QTableWidgetItem(text)
-                if conflicted:
-                    item.setForeground(QColor(DANGER))
-                if col == 0:
-                    item.setToolTip(str(m.source))
-                elif col == 2:
-                    item.setToolTip(str(m.target))
-                self._table.setItem(row, col, item)
+        self._build_tree(report.moves, report.blocked_sources)
+        self._apply_btn.setEnabled(bool(report.safe_moves))
 
         self._conflicts_list.clear()
         for c in report.conflicts:
@@ -183,23 +190,66 @@ class PreviewView(QWidget):
             self._warnings_list.addItem(w)
         self._warnings_panel.setVisible(bool(report.warnings))
 
+    def show_dimensions(self, visible: bool) -> None:
+        """自动整理模式显示分类方式选择行；手动模式隐藏。"""
+        self._dim_row.setVisible(visible)
+
+    def dimensions(self) -> list[str]:
+        """当前勾选的分类方式。"""
+        return list(self._dimensions)
+
     def clear(self) -> None:
         """回到空态（无计划）。"""
         self._report = None
+        self._tree.clear()
         self._apply_btn.setEnabled(False)
         self._summary.setVisible(False)
-        self._table.setVisible(False)
+        self._tree.setVisible(False)
         self._conflicts_panel.setVisible(False)
         self._warnings_panel.setVisible(False)
         self._empty_hint.setVisible(True)
 
-    # ---- 辅助 ----
+    # ---- 分类方式 ----
 
-    def _rel(self, path: Path) -> str:
-        """相对根目录显示路径；不在根下则回退绝对路径。"""
-        if self._root is None:
-            return str(path)
+    def _set_dimensions(self, dimensions: list[str]) -> None:
+        """按给定维度同步勾选（guard 防止触发 dimensions_changed）。"""
+        self._updating = True
         try:
-            return str(path.relative_to(self._root))
-        except ValueError:
-            return str(path)
+            self._dimensions = [d for d in _DIMENSIONS_ORDER if d in dimensions]
+            for dim, cb in self._dim_checkboxes.items():
+                cb.setChecked(dim in self._dimensions)
+        finally:
+            self._updating = False
+
+    def _on_dim_toggled(self) -> None:
+        if self._updating:
+            return
+        self._dimensions = [d for d in _DIMENSIONS_ORDER if self._dim_checkboxes[d].isChecked()]
+        self.dimensions_changed.emit(list(self._dimensions))
+
+    # ---- 文件树 ----
+
+    def _build_tree(self, moves: list, blocked: set) -> None:
+        self._tree.clear()
+        root_item = self._tree.invisibleRootItem()
+        for m in sorted(moves, key=lambda p: (p.reason, str(p.source))):
+            parent = root_item
+            for part in m.reason.split("/"):
+                child = self._find_child(parent, part)
+                if child is None:
+                    child = QTreeWidgetItem([part])
+                    parent.addChild(child)
+                parent = child
+            leaf = QTreeWidgetItem([m.source.name])
+            if m.source in blocked:
+                leaf.setForeground(0, QColor(DANGER))
+            parent.addChild(leaf)
+        self._tree.expandAll()
+
+    @staticmethod
+    def _find_child(parent: QTreeWidgetItem, text: str) -> QTreeWidgetItem | None:
+        for i in range(parent.childCount()):
+            child = parent.child(i)
+            if child.text(0) == text:
+                return child
+        return None

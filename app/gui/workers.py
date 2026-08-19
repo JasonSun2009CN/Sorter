@@ -72,6 +72,7 @@ class ScanWorker(QObject):
     """递归扫描 + 写入索引，完成后发出 ScannedFile 列表。"""
 
     progress = Signal(str)
+    progress_value = Signal(int)  # 0-100
     finished = Signal(list)  # list[ScannedFile]
     error = Signal(str)
 
@@ -99,6 +100,7 @@ class TagWorker(QObject):
     """为已索引文件生成系统标签 + 内容关键词标签 + 概述 + 学习标签。"""
 
     progress = Signal(str)
+    progress_value = Signal(int)  # 0-100
     finished = Signal(list, int, int, int, int)  # files, n_system, n_content, n_summary, n_learned
     error = Signal(str)
 
@@ -118,6 +120,7 @@ class TagWorker(QObject):
         db = Database(self._db_path)
         try:
             self.progress.emit("正在生成系统标签…")
+            self.progress_value.emit(5)
             n_system = assign_system_tags(db, self._files)
 
             # 一次内容提取，供内容标签 / 概述 / ML 语料复用
@@ -131,12 +134,17 @@ class TagWorker(QObject):
             for i, f in enumerate(self._files):
                 if i % 20 == 0:
                     self.progress.emit(f"正在识别文件内容… ({i}/{total})")
+                    self.progress_value.emit(5 + int(i / total * 65) if total else 70)
                 texts[str(f.path)] = extract_text(f.path)
+            self.progress_value.emit(70)
 
+            self.progress.emit("正在生成标签与概述…")
             n_content = assign_content_tags(db, self._files, texts=texts)
             n_summary = save_summaries(db, build_summaries(self._files, texts))
+            self.progress_value.emit(85)
             self.progress.emit("正在预测学习标签…")
             n_learned = assign_learned_tags(db, self._files, texts=texts)
+            self.progress_value.emit(100)
             self.finished.emit(self._files, n_system, n_content, n_summary, n_learned)
         except Exception as exc:  # noqa: BLE001
             self.error.emit(str(exc))

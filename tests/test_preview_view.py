@@ -43,11 +43,33 @@ def _report(tmp_path, *, collide=False, occupy=False):
     return generate_preview(moves)
 
 
+def _leaves(view):
+    """收集文件树的所有叶子（文件名）与红字叶子。"""
+    names, red = [], []
+    def walk(item):
+        for i in range(item.childCount()):
+            child = item.child(i)
+            if child.childCount() == 0:
+                names.append(child.text(0))
+                if child.foreground(0).color().name().casefold() == DANGER.casefold():
+                    red.append(child.text(0))
+            else:
+                walk(child)
+    root = view._tree.invisibleRootItem()
+    for i in range(root.childCount()):
+        walk(root.child(i))
+    return names, red
+
+
 def test_load_preview_renders_rows(qapp, tmp_path):
     view = PreviewView()
     report = _report(tmp_path)
     view.load_preview(report, root=tmp_path)
-    assert view._table.rowCount() == 2
+    assert view._tree.topLevelItemCount() == 1
+    assert view._tree.topLevelItem(0).text(0) == "PDF"  # 目录节点
+    names, red = _leaves(view)
+    assert names == ["a.pdf", "b.pdf"]
+    assert red == []
     assert "将移动 2 个文件" in view._summary.text()
     assert view._empty_hint.isHidden()
     view.deleteLater()
@@ -57,14 +79,11 @@ def test_conflict_rows_marked_red(qapp, tmp_path):
     view = PreviewView()
     report = _report(tmp_path, collide=True)
     view.load_preview(report, root=tmp_path)
-    # 两行都应是冲突
-    assert view._table.rowCount() == 2
     assert not view._conflicts_panel.isHidden()
     assert view._conflicts_list.count() == 1
-    for row in range(view._table.rowCount()):
-        status = view._table.item(row, 3)
-        assert "冲突" in status.text()
-        assert status.foreground().color().name().casefold() == DANGER.casefold()
+    names, red = _leaves(view)
+    assert names == ["a.pdf", "b.pdf"]
+    assert red == ["a.pdf", "b.pdf"]  # 两个冲突文件都标红
     view.deleteLater()
 
 
@@ -94,7 +113,7 @@ def test_empty_state(qapp, tmp_path):
     report = generate_preview([])
     view.load_preview(report, root=tmp_path)
     assert not view._empty_hint.isHidden()
-    assert view._table.isHidden()
+    assert view._tree.isHidden()
     assert "无需移动" in view._empty_hint.text()
     view.deleteLater()
 
@@ -120,7 +139,7 @@ def test_clear_resets(qapp, tmp_path):
     view.load_preview(report, root=tmp_path)
     view.clear()
     assert not view._empty_hint.isHidden()
-    assert view._table.isHidden()
+    assert view._tree.isHidden()
     view.deleteLater()
 
 
@@ -150,4 +169,40 @@ def test_apply_requested_signal(qapp, tmp_path):
     view.load_preview(report, root=tmp_path)
     view._apply_btn.click()
     assert fired == [True]
+    view.deleteLater()
+
+
+# ---- 分类方式选择（自动整理） ----
+
+def test_dimensions_changed_signal(qapp, tmp_path):
+    view = PreviewView()
+    fired = []
+    view.dimensions_changed.connect(lambda dims: fired.append(list(dims)))
+    # 默认 标签+类型；取消勾选「按类型」→ 只剩标签
+    view._dim_checkboxes["type"].setChecked(False)
+    assert fired and fired[-1] == ["tag"]
+    # 勾选「按年份」→ [tag, year]（固定顺序）
+    view._dim_checkboxes["year"].setChecked(True)
+    assert fired[-1] == ["tag", "year"]
+    view.deleteLater()
+
+
+def test_show_dimensions_toggle(qapp, tmp_path):
+    view = PreviewView()
+    assert view._dim_row.isHidden() is False  # 默认可见
+    view.show_dimensions(False)
+    assert view._dim_row.isHidden()
+    view.deleteLater()
+
+
+def test_load_preview_syncs_dimensions_without_signal(qapp, tmp_path):
+    view = PreviewView()
+    fired = []
+    view.dimensions_changed.connect(lambda dims: fired.append(dims))
+    report = _report(tmp_path)
+    view.load_preview(report, root=tmp_path, dimensions=["year", "extension"])
+    assert view._dim_checkboxes["year"].isChecked()
+    assert view._dim_checkboxes["extension"].isChecked()
+    assert view._dim_checkboxes["tag"].isChecked() is False
+    assert fired == []  # 同步勾选不触发重新生成
     view.deleteLater()

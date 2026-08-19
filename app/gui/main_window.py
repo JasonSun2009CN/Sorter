@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -29,7 +30,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 
-from app.core.autoplan import auto_plan
+from app.core.autoplan import DIM_TAG, DIM_TYPE, auto_plan
 from app.core.history import has_undoable, record_operation
 from app.core.organizer import build_plan
 from app.core.preview import generate_preview
@@ -57,6 +58,8 @@ class MainWindow(QMainWindow):
         self._db = db
         self._thread = None
         self._last_files: list = []
+        self._preview_back_index = 1  # 自动流程从标签页进入预览
+        self._progress_dialog = None
         self._setup_menu()
         self._setup_stacked_widget()
         self.resize(1100, 720)
@@ -81,6 +84,11 @@ class MainWindow(QMainWindow):
         self.undo_action.triggered.connect(self._on_undo)
         edit_menu.addAction(self.undo_action)
 
+        org_menu = self.menuBar().addMenu("组织")
+        manual_action = QAction("手动规则…", self)
+        manual_action.triggered.connect(self._open_manual_rules)
+        org_menu.addAction(manual_action)
+
         help_menu = self.menuBar().addMenu("帮助")
         about_action = QAction("关于", self)
         about_action.triggered.connect(self._show_about)
@@ -103,8 +111,9 @@ class MainWindow(QMainWindow):
         self.tag_view.finished.connect(self._on_tag_review_finished)
         self.rules_view.finished.connect(self._on_rules_ready)
         self.rules_view.auto_requested.connect(self._on_auto_plan)
-        self.preview_view.back.connect(lambda: self.switch_view(2))
+        self.preview_view.back.connect(self._on_preview_back)
         self.preview_view.apply_requested.connect(self._on_apply_requested)
+        self.preview_view.dimensions_changed.connect(self._on_dimensions_changed)
         self.switch_view(0)
 
     # ---- 工作流接线 ----
@@ -120,16 +129,37 @@ class MainWindow(QMainWindow):
         if not files:
             self.statusBar().showMessage("扫描完成：未发现文件")
             return
+        from PySide6.QtWidgets import QProgressDialog
+        self._progress_dialog = QProgressDialog("正在分析文件…", "", 0, 100, self)
+        self._progress_dialog.setWindowModality(Qt.WindowModal)
+        self._progress_dialog.setMinimumDuration(0)
+        self._progress_dialog.show()
         worker = TagWorker(self._db.path, files)
-        worker.progress.connect(self.statusBar().showMessage)
+        worker.progress.connect(self._on_tag_progress)
+        worker.progress_value.connect(self._on_tag_progress_value)
         worker.finished.connect(self._on_tagging_finished)
         worker.error.connect(self._on_worker_error)
         self._thread = start_worker(worker, self)
+
+    def _on_tag_progress(self, message: str) -> None:
+        self.statusBar().showMessage(message)
+        if self._progress_dialog is not None:
+            self._progress_dialog.setLabelText(message)
+
+    def _on_tag_progress_value(self, value: int) -> None:
+        if self._progress_dialog is not None:
+            self._progress_dialog.setValue(value)
+
+    def _close_progress(self) -> None:
+        if self._progress_dialog is not None:
+            self._progress_dialog.close()
+            self._progress_dialog = None
 
     def _on_tagging_finished(
         self, files: list, n_system: int, n_content: int = 0, n_summary: int = 0, n_learned: int = 0,
     ) -> None:
         self._thread = None
+        self._close_progress()
         self._last_files = files
         self.tag_view.load_files(files)
         self.switch_view(1)
@@ -138,8 +168,14 @@ class MainWindow(QMainWindow):
         )
 
     def _on_tag_review_finished(self) -> None:
+        """打完标签后自动默认用这些标签组织 → 直接进预览（文件树确认）。"""
+        self._preview_back_index = 1  # 自动流程 → 返回标签页
+        self._show_auto_preview([DIM_TAG, DIM_TYPE])
+
+    def _open_manual_rules(self) -> None:
+        """菜单：手动规则（高级）。"""
         self.rules_view.load_files(self._last_files, root=self.scan_view.folder())
-        self.switch_view(2)  # 组织规则（Phase 5）
+        self.switch_view(2)
 
     def _on_rules_ready(self) -> None:
         rule = self.rules_view.current_rule()
@@ -152,18 +188,36 @@ class MainWindow(QMainWindow):
             rule,
             root,
         )
+        self._preview_back_index = 2  # 手动流程 → 返回规则页
+        self.preview_view.show_dimensions(False)
         self.preview_view.load_preview(generate_preview(moves), root=root)
         self.switch_view(3)  # 变更预览（Phase 6）
 
-    def _on_auto_plan(self) -> None:
-        """自动规划整理：按每文件最佳标签生成计划 → 预览 → 确认。"""
+    def _show_auto_preview(self, dimensions: list[str]) -> None:
+        """自动规划：按所选分类维度（多层文件夹）生成计划 → 预览。"""
         root = self.scan_view.folder()
-        moves = auto_plan(self._db, self._last_files, root)
-        self.preview_view.load_preview(generate_preview(moves), root=root)
+        moves = auto_plan(self._db, self._last_files, root, dimensions=dimensions)
+        self.preview_view.show_dimensions(True)
+        self.preview_view.load_preview(
+            generate_preview(moves), root=root, dimensions=dimensions
+        )
         self.switch_view(3)
+
+    def _on_auto_plan(self) -> None:
+        """自动整理（规则页入口，旧路径）。"""
+        self._preview_back_index = 1
+        self._show_auto_preview([DIM_TAG, DIM_TYPE])
+
+    def _on_dimensions_changed(self, dimensions: list) -> None:
+        """分类方式变化 → 重新生成文件树预览。"""
+        self._show_auto_preview(dimensions)
+
+    def _on_preview_back(self) -> None:
+        self.switch_view(self._preview_back_index)
 
     def _on_worker_error(self, message: str) -> None:
         self._thread = None
+        self._close_progress()
         QMessageBox.critical(self, "处理失败", message)
         self.statusBar().showMessage("处理失败")
 
@@ -188,7 +242,9 @@ class MainWindow(QMainWindow):
         if pairs:
             record_operation(self._db, pairs)
             self.undo_action.setEnabled(True)
-            self.statusBar().showMessage(f"已移动 {len(pairs)} 个文件")
+            message = f"已移动 {len(pairs)} 个文件"
+            self.statusBar().showMessage(message)
+            self._notify("整理完成", message)
         else:
             self.statusBar().showMessage("没有文件被移动")
         if errors:
@@ -208,7 +264,9 @@ class MainWindow(QMainWindow):
             self.undo_action.setEnabled(False)
             self.statusBar().showMessage("没有可撤销的操作")
             return
-        self.statusBar().showMessage(f"已撤销：恢复 {len(record.moves)} 个文件")
+        message = f"已撤销：恢复 {len(record.moves)} 个文件"
+        self.statusBar().showMessage(message)
+        self._notify("撤销完成", message)
         self.undo_action.setEnabled(has_undoable(self._db))
         if errors:
             self._show_undo_errors(errors)
@@ -222,6 +280,10 @@ class MainWindow(QMainWindow):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         ) == QMessageBox.Yes
+
+    def _notify(self, title: str, message: str) -> None:
+        """醒目完成提示（测试可 monkeypatch 此方法）。"""
+        QMessageBox.information(self, title, message)
 
     def _show_apply_errors(self, errors: list) -> None:
         QMessageBox.warning(

@@ -20,14 +20,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
-    QProgressBar,
+    QProgressDialog,
     QPushButton,
     QTableWidgetItem,
     QVBoxLayout,
@@ -49,6 +49,7 @@ class ScanView(QWidget):
         super().__init__()
         self._db_path = str(db_path)
         self._thread = None
+        self._dialog: QProgressDialog | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -70,10 +71,6 @@ class ScanView(QWidget):
         row.addWidget(self._select_btn)
         row.addWidget(self._scan_btn)
 
-        self._progress = QProgressBar()
-        self._progress.setVisible(False)
-        self._progress.setTextVisible(False)
-
         self._table = make_file_table()
 
         self._status = QLabel("尚未扫描")
@@ -81,7 +78,6 @@ class ScanView(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addLayout(row)
-        layout.addWidget(self._progress)
         layout.addWidget(self._table, 1)
         layout.addWidget(self._status)
 
@@ -111,7 +107,7 @@ class ScanView(QWidget):
             return
         self._set_scanning(True)
         worker = ScanWorker(self._db_path, folder)
-        worker.progress.connect(self._status.setText)
+        worker.progress.connect(self._on_progress)
         worker.finished.connect(self._on_scan_done)
         worker.error.connect(self._on_scan_error)
         self._thread = start_worker(worker, self)
@@ -123,14 +119,24 @@ class ScanView(QWidget):
 
     # ---- 内部槽 ----
 
+    def _on_progress(self, message: str) -> None:
+        self._status.setText(message)
+        if self._dialog is not None:
+            self._dialog.setLabelText(message)
+
     def _set_scanning(self, scanning: bool) -> None:
         self._select_btn.setEnabled(not scanning)
         self._scan_btn.setEnabled(not scanning)
         self._scan_btn.setText("扫描中…" if scanning else "开始扫描")
-        self._progress.setVisible(scanning)
         if scanning:
-            self._progress.setRange(0, 0)  # 不确定进度
             self._status.setText("正在扫描目录…")
+            self._dialog = QProgressDialog("正在扫描目录…", "", 0, 0, self)
+            self._dialog.setWindowModality(Qt.WindowModal)
+            self._dialog.setMinimumDuration(0)
+            self._dialog.show()
+        elif self._dialog is not None:
+            self._dialog.close()
+            self._dialog = None
 
     def _on_scan_done(self, files: list[ScannedFile]) -> None:
         self._thread = None

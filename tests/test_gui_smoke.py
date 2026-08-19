@@ -107,12 +107,11 @@ def test_switch_view_through_workflow(qapp, env):
     try:
         win._on_tagging_finished(files, n_system=5, n_learned=0)
         assert win.stack.currentIndex() == 1  # 标签审核
-        win.tag_view.finished.emit()
-        assert win.stack.currentIndex() == 2  # 组织规则
-        win.rules_view.finished.emit()
+        win.tag_view.finished.emit()  # 打完标签 → 自动默认用标签组织 → 直接预览
         assert win.stack.currentIndex() == 3  # 变更预览
-        assert get_last_rule(db) is None      # 空规则不保存
-        assert win.preview_view._empty_hint.isHidden() is False  # 空规则 → 空态
+        assert win.preview_view._tree.topLevelItemCount() >= 1  # 文件树有内容
+        assert win.preview_view._dim_row.isHidden() is False  # 自动模式显示分类方式
+        assert get_last_rule(db) is None  # 自动规划不写 rules 表
     finally:
         win.close()
 
@@ -124,16 +123,18 @@ def test_rules_ready_saves_rule(qapp, env):
         root = files[0].path.parent
         win.scan_view.set_folder(root)
         win._on_tagging_finished(files, n_system=5, n_learned=0)
-        win.tag_view.finished.emit()  # → 规则视图载入文件
+        win._open_manual_rules()  # 菜单：组织 → 手动规则
+        assert win.stack.currentIndex() == 2
         win.rules_view.add_level(RuleLevel(KIND_EXTENSION))
-        win.rules_view.finished.emit()  # → 保存规则 + 生成预览 + 切换
+        win.rules_view.finished.emit()  # → 保存规则 + 生成预览
         assert win.stack.currentIndex() == 3
         last = get_last_rule(db)
         assert last is not None
         assert last[1].levels[0].kind == KIND_EXTENSION
-        # 两个 txt 文件 → 预览表 2 行（TXT 目录，无冲突）
-        assert win.preview_view._table.rowCount() == 2
-        assert win.preview_view._conflicts_panel.isHidden()  # 无冲突
+        # 两个 txt 文件 → 树：目录 TXT + 2 个叶子
+        assert win.preview_view._tree.topLevelItemCount() == 1
+        assert win.preview_view._tree.topLevelItem(0).text(0) == "TXT"
+        assert win.preview_view._dim_row.isHidden()  # 手动模式隐藏分类方式行
         assert "将移动 2 个文件" in win.preview_view._summary.text()
     finally:
         win.close()
@@ -158,9 +159,7 @@ def _drive_to_preview(win, files, monkeypatch):
     root = files[0].path.parent
     win.scan_view.set_folder(root)
     win._on_tagging_finished(files, n_system=5, n_learned=0)
-    win.tag_view.finished.emit()
-    win.rules_view.add_level(RuleLevel(KIND_EXTENSION))
-    win.rules_view.finished.emit()
+    win.tag_view.finished.emit()  # → 自动规划 → 预览
     return root
 
 
@@ -171,8 +170,9 @@ def test_apply_undo_workflow(qapp, env, monkeypatch):
         root = _drive_to_preview(win, files, monkeypatch)
         assert win.preview_view._apply_btn.isEnabled() is True
 
-        # 同步执行 worker，避免真实线程
+        # 同步执行 worker，避免真实线程；跳过完成弹窗
         monkeypatch.setattr(win, "_confirm_apply", lambda count: True)
+        monkeypatch.setattr(win, "_notify", lambda *a: None)
 
         def fake_start_worker(worker, owner):
             worker.run()
@@ -182,8 +182,8 @@ def test_apply_undo_workflow(qapp, env, monkeypatch):
 
         win.preview_view._apply_btn.click()
         # 文件真的被移动到 TXT/
-        assert (root / "TXT" / "a.txt").exists()
-        assert (root / "TXT" / "b.txt").exists()
+        assert (root / "text" / "a.txt").exists()
+        assert (root / "text" / "b.txt").exists()
         assert not (root / "a.txt").exists()
         assert win.undo_action.isEnabled() is True
         assert win.preview_view._apply_btn.isEnabled() is False  # 消费预览
@@ -193,7 +193,7 @@ def test_apply_undo_workflow(qapp, env, monkeypatch):
         # 文件回原处
         assert (root / "a.txt").exists()
         assert (root / "b.txt").exists()
-        assert not (root / "TXT" / "a.txt").exists()
+        assert not (root / "text" / "a.txt").exists()
         assert win.undo_action.isEnabled() is False  # 无更多可撤销
         assert "已撤销" in win.statusBar().currentMessage()
     finally:
@@ -209,7 +209,7 @@ def test_apply_cancel_moves_nothing(qapp, env, monkeypatch):
         win.preview_view._apply_btn.click()
         # 确认被取消 → 不移动
         assert (root / "a.txt").exists()
-        assert not (root / "TXT" / "a.txt").exists()
+        assert not (root / "text" / "a.txt").exists()
         assert win.undo_action.isEnabled() is False
         assert win.preview_view._apply_btn.isEnabled() is True  # 仍可重试
     finally:
@@ -275,19 +275,24 @@ def test_tag_view_shows_summary(qapp, env):
         win.close()
 
 
-def test_auto_plan_button_drives_preview(qapp, env):
+def test_dimension_change_regenerates_tree(qapp, env):
+    """勾选分类方式变化 → 重新生成文件树。"""
     db, files = env
     win = MainWindow(db)
     try:
         root = files[0].path.parent
         win.scan_view.set_folder(root)
         win._on_tagging_finished(files, n_system=5, n_learned=0, n_content=4, n_summary=2)
-        win.tag_view.finished.emit()
-        # 「自动整理」按钮存在，点击 → 按类型自动规划 → 预览
-        win.rules_view._auto_btn.click()
+        win.tag_view.finished.emit()  # 自动预览（默认 标签+类型）
         assert win.stack.currentIndex() == 3
-        assert win.preview_view._table.rowCount() >= 2  # 两个 txt 按类型
+        assert win.preview_view._tree.topLevelItemCount() >= 1
         assert win.preview_view._apply_btn.isEnabled() is True
+        # 取消「按类型」→ 只剩标签 → 无标签文件 → 空计划 → 空态
+        win.preview_view._dim_checkboxes["type"].setChecked(False)
+        assert win.preview_view._empty_hint.isHidden() is False
+        # 重新勾上 → 恢复
+        win.preview_view._dim_checkboxes["type"].setChecked(True)
+        assert win.preview_view._tree.topLevelItemCount() >= 1
     finally:
         win.close()
 
@@ -299,10 +304,10 @@ def test_auto_plan_then_apply_undo(qapp, env, monkeypatch):
         root = files[0].path.parent
         win.scan_view.set_folder(root)
         win._on_tagging_finished(files, n_system=5, n_learned=0)
-        win.tag_view.finished.emit()
-        win.rules_view._auto_btn.click()  # 自动规划 → 预览
+        win.tag_view.finished.emit()  # 自动规划 → 预览
 
         monkeypatch.setattr(win, "_confirm_apply", lambda count: True)
+        monkeypatch.setattr(win, "_notify", lambda *a: None)
         monkeypatch.setattr("app.gui.main_window.start_worker", lambda w, o: w.run())
         win.preview_view._apply_btn.click()
         assert (root / "text" / "a.txt").exists()  # 自动规划按类型移动

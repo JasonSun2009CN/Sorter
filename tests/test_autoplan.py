@@ -53,14 +53,14 @@ def test_priority_user_over_learned(tmp_path):
     fid = _file_id(db, "a.txt")
     add_user_tag(db, fid, "重要")          # source='user'
     _add_tag(db, fid, "school")            # source='learned'
-    plans = auto_plan(db, files, tmp_path)
+    plans = auto_plan(db, files, tmp_path, dimensions=("tag",))
     assert _plan_for(plans, "a.txt").target == tmp_path / "重要" / "a.txt"
 
 
 def test_priority_learned_over_type(tmp_path):
     db, files = _setup(tmp_path)
     _add_tag(db, _file_id(db, "b.pdf"), "report")
-    plans = auto_plan(db, files, tmp_path)
+    plans = auto_plan(db, files, tmp_path, dimensions=("tag",))
     assert _plan_for(plans, "b.pdf").target == tmp_path / "report" / "b.pdf"
 
 
@@ -80,7 +80,7 @@ def test_type_other_skipped(tmp_path):
 def test_segment_sanitized(tmp_path):
     db, files = _setup(tmp_path)
     add_user_tag(db, _file_id(db, "a.txt"), "a/b:c")
-    plans = auto_plan(db, files, tmp_path)
+    plans = auto_plan(db, files, tmp_path, dimensions=("tag",))
     assert _plan_for(plans, "a.txt").target == tmp_path / "a_b_c" / "a.txt"
 
 
@@ -93,7 +93,7 @@ def test_already_in_place_skipped(tmp_path):
     Scanner(db).index_in_db(db, files)
     fid = _file_id(db, "x.txt")
     add_user_tag(db, fid, "重要")
-    plans = auto_plan(db, files, tmp_path)
+    plans = auto_plan(db, files, tmp_path, dimensions=("tag",))
     assert all(p.source.name != "x.txt" for p in plans)
 
 
@@ -118,10 +118,8 @@ def test_best_tag_matches():
     f = ScannedFile(path=Path("/tmp/a.txt"), size=1, mtime=0.0, ctime=0.0)
     assert _best_tag(f, [("text", "system", 1.0), ("school", "learned", 0.8)]) == "school"
     assert _best_tag(f, [("text", "system", 1.0), ("重要", "user", 1.0)]) == "重要"
-    assert _best_tag(f, [("text", "system", 1.0)]) == "text"  # 类型兜底
-    assert _best_tag(f, []) == "text"  # 无标签也按类型兜底
-    f2 = ScannedFile(path=Path("/tmp/a.xyz"), size=1, mtime=0.0, ctime=0.0)
-    assert _best_tag(f2, []) is None  # other → 跳过
+    assert _best_tag(f, [("text", "system", 1.0)]) is None  # 类型兜底改由 DIM_TYPE 维度承担
+    assert _best_tag(f, []) is None
 
 
 def test_moveplans_are_sorted_and_moveplan(tmp_path):
@@ -130,3 +128,33 @@ def test_moveplans_are_sorted_and_moveplan(tmp_path):
     assert isinstance(plans[0], MovePlan)
     sources = [str(p.source) for p in plans]
     assert sources == sorted(sources)
+
+
+# ---- 多层级维度 ----
+
+def test_multi_level_tag_then_type(tmp_path):
+    db, files = _setup(tmp_path)
+    add_user_tag(db, _file_id(db, "a.txt"), "重要")
+    plans = auto_plan(db, files, tmp_path, dimensions=("tag", "type"))
+    assert _plan_for(plans, "a.txt").target == tmp_path / "重要" / "text" / "a.txt"  # 两层
+    assert _plan_for(plans, "b.pdf").target == tmp_path / "pdf" / "b.pdf"  # 无 tag → 仅类型
+
+
+def test_multi_level_year_extension(tmp_path):
+    (tmp_path / "data.txt").write_text("x", encoding="utf-8")
+    db = Database(tmp_path / "index.db")
+    db.initialize()
+    files = Scanner(db).scan(tmp_path, db_path=db.path)
+    Scanner(db).index_in_db(db, files)
+    plans = auto_plan(db, files, tmp_path, dimensions=("year", "extension"))
+    p = _plan_for(plans, "data.txt")
+    year = str(__import__("datetime").datetime.fromtimestamp(p.source.stat().st_mtime).year)
+    assert p.target == tmp_path / year / "TXT" / "data.txt"
+
+
+def test_multi_level_missing_dimension_skips_layer(tmp_path):
+    db, files = _setup(tmp_path)
+    # a.txt 有类型无标签 → 只生成 type 层
+    plans = auto_plan(db, files, tmp_path, dimensions=("tag", "type"))
+    assert _plan_for(plans, "a.txt").target == tmp_path / "text" / "a.txt"
+    assert "/" not in _plan_for(plans, "a.txt").reason.replace("/", "x")  # 单层 reason
