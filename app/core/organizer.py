@@ -1,9 +1,10 @@
 # =============================================================================
-# app/core/organizer.py —— 组织引擎（Phase 5：规则 → 目标路径）
+# app/core/organizer.py —— 组织引擎（规则 → 目标路径 → 安全移动）
 #
 # 作用：
-#   根据用户规则为每个文件计算目标路径。本模块只“计划”不“执行”，
-#   实际的移动发生在用户确认之后（Phase 7）。
+#   根据用户规则为每个文件计算目标路径，并在用户确认后安全执行移动。
+#   计划阶段（build_plan）与执行阶段（apply_plan）分离：执行只接收
+#   经预览过滤的无冲突 safe_moves。
 #
 # 规则模型（五类维度，两种语义）：
 #   tag           过滤器 + 标签：文件必须拥有该标签规则才适用；
@@ -17,16 +18,21 @@
 #   apply_level(file, tags, level) -> str | None     # 单层目录段
 #   compute_target(file, tags, rule) -> Path | None  # 相对目标目录
 #   build_plan(files_with_tags, rule, root) -> list[MovePlan]
+#   move_file(source, target)                        # 单文件安全移动（不覆盖）
+#   apply_plan(plans) -> (moved_pairs, errors)       # 执行移动（确认后）
 #   _sanitize_segment(raw) / _same_location(a, b)
 #   rule_to_dict(rule) / rule_from_dict(d)
 #   describe_level(level)                            # UI 展示用
 # =============================================================================
 
-"""组织引擎：规则模型与目标路径计算（纯逻辑，可单测）。"""
+"""组织引擎：规则模型、目标路径计算与安全移动。"""
 
 from __future__ import annotations
 
+import errno
+import os
 import re
+import shutil
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -220,13 +226,45 @@ def describe_level(level: RuleLevel) -> str:
     return labels.get(level.kind, f"未知维度：{level.kind}")
 
 
-# ---- Phase 7 预留 ----
+# ---- 执行：安全移动（确认后） ----
 
-def apply_plan(plans: list[MovePlan]) -> object:
-    """实际移动文件并生成操作记录（Phase 7 实现）。"""
-    raise NotImplementedError("apply_plan 在 Phase 7 实现")
+def move_file(source: Path, target: Path) -> None:
+    """移动单个文件；**绝不覆盖**已存在的目标（含悬空符号链接）。
+
+    同文件系统用 ``os.rename``（原子且目标存在时不覆盖）；跨文件系统
+    （``EXDEV``）回退 ``shutil.move``（复制 + 删除），复制前再次确认目标
+    不存在，缩小 TOCTOU 窗口（``shutil.move`` 的复制路径会静默覆盖）。
+    """
+    source = Path(source)
+    target = Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists() or target.is_symlink():
+        raise FileExistsError(f"目标已存在，拒绝覆盖：{target}")
+    try:
+        os.rename(str(source), str(target))
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+        if target.exists() or target.is_symlink():
+            raise FileExistsError(f"目标已存在，拒绝覆盖：{target}")
+        shutil.move(str(source), str(target))
 
 
-def _resolve_conflicts(plans: list[MovePlan]) -> list[MovePlan]:
-    """重名 / 目标冲突处理（Phase 7 实现）。"""
-    raise NotImplementedError("_resolve_conflicts 在 Phase 7 实现")
+def apply_plan(plans: list[MovePlan]) -> tuple[list[tuple[Path, Path]], list[str]]:
+    """执行移动计划（调用方须传入无冲突的 ``safe_moves``）。
+
+    逐条移动，单条失败收集错误并继续；**只返回成功移动的 (source, target) 对**，
+    使调用方能精确记录撤销所需的 旧→新 映射（部分应用因此安全）。
+    """
+    moved: list[tuple[Path, Path]] = []
+    errors: list[str] = []
+    for plan in plans:
+        if _same_location(plan.source, plan.target):
+            continue  # 防御：同位置不应出现在计划里
+        try:
+            move_file(plan.source, plan.target)
+        except OSError as exc:
+            errors.append(f"{plan.source.name}: {exc}")
+        else:
+            moved.append((plan.source, plan.target))
+    return moved, errors

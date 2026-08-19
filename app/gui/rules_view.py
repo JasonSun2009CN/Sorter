@@ -236,8 +236,11 @@ class RulesView(QWidget):
     @staticmethod
     def _clear_layout(layout: QVBoxLayout) -> None:
         while (item := layout.takeAt(0)) is not None:
-            if item.widget() is not None:
-                item.widget().deleteLater()
+            if item.spacerItem() is not None:
+                continue  # 分隔项无需删除
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
 
     def _render_levels(self) -> None:
         self._clear_layout(self._levels_layout)

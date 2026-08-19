@@ -149,3 +149,68 @@ def test_rules_view_auto_loads_last_rule(qapp, tmp_path):
     assert len(view.current_rule().levels) == 1
     assert view.current_rule().levels[0].kind == KIND_TYPE
     view.deleteLater()
+
+
+# ---- Phase 7：应用变更 / 撤销 ----
+
+def _drive_to_preview(win, files, monkeypatch):
+    """驱动工作流到预览视图并返回根目录。"""
+    root = files[0].path.parent
+    win.scan_view.set_folder(root)
+    win._on_tagging_finished(files, n_system=5, n_learned=0)
+    win.tag_view.finished.emit()
+    win.rules_view.add_level(RuleLevel(KIND_EXTENSION))
+    win.rules_view.finished.emit()
+    return root
+
+
+def test_apply_undo_workflow(qapp, env, monkeypatch):
+    db, files = env
+    win = MainWindow(db)
+    try:
+        root = _drive_to_preview(win, files, monkeypatch)
+        assert win.preview_view._apply_btn.isEnabled() is True
+
+        # 同步执行 worker，避免真实线程
+        monkeypatch.setattr(win, "_confirm_apply", lambda count: True)
+
+        def fake_start_worker(worker, owner):
+            worker.run()
+            return None
+
+        monkeypatch.setattr("app.gui.main_window.start_worker", fake_start_worker)
+
+        win.preview_view._apply_btn.click()
+        # 文件真的被移动到 TXT/
+        assert (root / "TXT" / "a.txt").exists()
+        assert (root / "TXT" / "b.txt").exists()
+        assert not (root / "a.txt").exists()
+        assert win.undo_action.isEnabled() is True
+        assert win.preview_view._apply_btn.isEnabled() is False  # 消费预览
+        assert "已移动 2 个文件" in win.statusBar().currentMessage()
+
+        win.undo_action.trigger()
+        # 文件回原处
+        assert (root / "a.txt").exists()
+        assert (root / "b.txt").exists()
+        assert not (root / "TXT" / "a.txt").exists()
+        assert win.undo_action.isEnabled() is False  # 无更多可撤销
+        assert "已撤销" in win.statusBar().currentMessage()
+    finally:
+        win.close()
+
+
+def test_apply_cancel_moves_nothing(qapp, env, monkeypatch):
+    db, files = env
+    win = MainWindow(db)
+    try:
+        root = _drive_to_preview(win, files, monkeypatch)
+        monkeypatch.setattr(win, "_confirm_apply", lambda count: False)
+        win.preview_view._apply_btn.click()
+        # 确认被取消 → 不移动
+        assert (root / "a.txt").exists()
+        assert not (root / "TXT" / "a.txt").exists()
+        assert win.undo_action.isEnabled() is False
+        assert win.preview_view._apply_btn.isEnabled() is True  # 仍可重试
+    finally:
+        win.close()

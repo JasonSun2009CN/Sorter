@@ -41,7 +41,8 @@ _COLUMNS = ["文件名", "当前目录", "目标目录", "状态"]
 class PreviewView(QWidget):
     """工作流第 ④ 步：预览变更。"""
 
-    back = Signal()  # 「← 返回规则」
+    back = Signal()             # 「← 返回规则」
+    apply_requested = Signal()  # 「应用变更」被点击
 
     def __init__(self) -> None:
         super().__init__()
@@ -94,7 +95,8 @@ class PreviewView(QWidget):
         self._apply_btn = QPushButton("应用变更")
         self._apply_btn.setObjectName("accent")
         self._apply_btn.setEnabled(False)
-        self._apply_btn.setToolTip("应用变更在 Phase 7 实现")
+        self._apply_btn.setToolTip("执行移动（可撤销）")
+        self._apply_btn.clicked.connect(self.apply_requested.emit)
 
         bottom = QHBoxLayout()
         bottom.addWidget(self._back_btn)
@@ -136,6 +138,7 @@ class PreviewView(QWidget):
             self.clear()
             return
 
+        self._apply_btn.setEnabled(bool(report.safe_moves))
         self._empty_hint.setVisible(False)
         self._table.setVisible(True)
         self._summary.setVisible(True)
@@ -183,6 +186,7 @@ class PreviewView(QWidget):
     def clear(self) -> None:
         """回到空态（无计划）。"""
         self._report = None
+        self._apply_btn.setEnabled(False)
         self._summary.setVisible(False)
         self._table.setVisible(False)
         self._conflicts_panel.setVisible(False)

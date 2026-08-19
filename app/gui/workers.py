@@ -123,3 +123,47 @@ class TagWorker(QObject):
             self.error.emit(str(exc))
         finally:
             db.close()
+
+
+class ApplyWorker(QObject):
+    """执行移动计划（纯文件操作，无需数据库连接）。"""
+
+    finished = Signal(list, list)  # moved_pairs, errors
+    error = Signal(str)
+
+    def __init__(self, safe_moves: list) -> None:
+        super().__init__()
+        self._safe_moves = safe_moves
+
+    def run(self) -> None:
+        from app.core.organizer import apply_plan
+
+        try:
+            moved, errors = apply_plan(self._safe_moves)
+            self.finished.emit(moved, errors)
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(str(exc))
+
+
+class UndoWorker(QObject):
+    """回滚最近一次操作（线程内自建数据库连接）。"""
+
+    finished = Signal(object, list)  # OperationRecord | None, errors
+    error = Signal(str)
+
+    def __init__(self, db_path: "str | Path") -> None:
+        super().__init__()
+        self._db_path = str(db_path)
+
+    def run(self) -> None:
+        from app.core import history
+        from app.database import Database
+
+        db = Database(self._db_path)
+        try:
+            record, errors = history.undo_last(db)
+            self.finished.emit(record, errors)
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(str(exc))
+        finally:
+            db.close()

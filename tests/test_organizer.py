@@ -188,3 +188,85 @@ def test_describe_level():
     assert describe_level(RuleLevel(KIND_EXTENSION)) == "按扩展名"
     assert describe_level(RuleLevel(KIND_YEAR_CREATED)) == "按创建年份"
     assert describe_level(RuleLevel(KIND_YEAR_MODIFIED)) == "按修改年份"
+
+
+# ---- Phase 7：安全移动 ----
+
+def test_move_file_creates_target_dir_and_moves(tmp_path):
+    src = tmp_path / "a.txt"
+    src.write_text("x", encoding="utf-8")
+    from app.core.organizer import move_file
+    move_file(src, tmp_path / "Nested" / "dir" / "a.txt")
+    assert not src.exists()
+    assert (tmp_path / "Nested" / "dir" / "a.txt").read_text(encoding="utf-8") == "x"
+
+
+def test_move_file_refuses_overwrite(tmp_path):
+    from app.core.organizer import move_file
+    src = tmp_path / "a.txt"
+    src.write_text("x", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("y", encoding="utf-8")
+    try:
+        move_file(src, tmp_path / "b.txt")
+    except FileExistsError:
+        pass
+    else:
+        assert False, "应拒绝覆盖已有目标"
+    assert src.exists() and (tmp_path / "b.txt").read_text(encoding="utf-8") == "y"
+
+
+def test_apply_plan_moves_and_returns_pairs(tmp_path):
+    from app.core.organizer import MovePlan, apply_plan
+    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("y", encoding="utf-8")
+    plans = [
+        MovePlan(source=tmp_path / "a.txt", target=tmp_path / "TXT" / "a.txt", reason="TXT"),
+        MovePlan(source=tmp_path / "b.txt", target=tmp_path / "TXT" / "b.txt", reason="TXT"),
+    ]
+    moved, errors = apply_plan(plans)
+    assert errors == []
+    assert moved == [(tmp_path / "a.txt", tmp_path / "TXT" / "a.txt"),
+                     (tmp_path / "b.txt", tmp_path / "TXT" / "b.txt")]
+
+
+def test_apply_plan_refuses_overwrite_continues(tmp_path):
+    from app.core.organizer import MovePlan, apply_plan
+    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("y", encoding="utf-8")
+    (tmp_path / "TXT").mkdir()
+    (tmp_path / "TXT" / "b.txt").write_text("occupied", encoding="utf-8")  # 预占用 b 的目标
+    plans = [
+        MovePlan(source=tmp_path / "a.txt", target=tmp_path / "TXT" / "a.txt", reason="TXT"),
+        MovePlan(source=tmp_path / "b.txt", target=tmp_path / "TXT" / "b.txt", reason="TXT"),
+    ]
+    moved, errors = apply_plan(plans)
+    assert len(moved) == 1 and moved[0][1].name == "a.txt"
+    assert len(errors) == 1 and "拒绝覆盖" in errors[0]
+    assert (tmp_path / "b.txt").exists()  # b 未被覆盖、仍在原处
+
+
+def test_apply_plan_source_missing(tmp_path):
+    from app.core.organizer import MovePlan, apply_plan
+    plans = [MovePlan(source=tmp_path / "nope.txt", target=tmp_path / "TXT" / "nope.txt", reason="TXT")]
+    moved, errors = apply_plan(plans)
+    assert moved == []
+    assert len(errors) == 1
+
+
+def test_apply_plan_target_parent_is_file(tmp_path):
+    from app.core.organizer import MovePlan, apply_plan
+    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+    (tmp_path / "TXT").write_text("I am a file", encoding="utf-8")  # 目标父目录是文件
+    plans = [MovePlan(source=tmp_path / "a.txt", target=tmp_path / "TXT" / "a.txt", reason="TXT")]
+    moved, errors = apply_plan(plans)
+    assert moved == []
+    assert len(errors) == 1
+
+
+def test_apply_plan_skips_same_location(tmp_path):
+    from app.core.organizer import MovePlan, apply_plan
+    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+    plans = [MovePlan(source=tmp_path / "a.txt", target=tmp_path / "a.txt", reason="TXT")]
+    moved, errors = apply_plan(plans)
+    assert moved == []
+    assert errors == []

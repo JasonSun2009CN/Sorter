@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 
+from app.core.history import has_undoable, record_operation
 from app.core.organizer import build_plan
 from app.core.preview import generate_preview
 from app.database import Database
@@ -38,7 +39,13 @@ from app.gui.preview_view import PreviewView
 from app.gui.rules_view import RulesView
 from app.gui.scan_view import ScanView
 from app.gui.tag_view import TagView
-from app.gui.workers import TagWorker, start_worker, stop_thread
+from app.gui.workers import (
+    ApplyWorker,
+    TagWorker,
+    UndoWorker,
+    start_worker,
+    stop_thread,
+)
 
 
 class MainWindow(QMainWindow):
@@ -67,10 +74,11 @@ class MainWindow(QMainWindow):
         file_menu.addAction(quit_action)
 
         edit_menu = self.menuBar().addMenu("编辑")
-        undo_action = QAction("撤销", self)
-        undo_action.setEnabled(False)
-        undo_action.setStatusTip("撤销（Phase 7 实现）")
-        edit_menu.addAction(undo_action)
+        self.undo_action = QAction("撤销", self)
+        self.undo_action.setEnabled(has_undoable(self._db))
+        self.undo_action.setStatusTip("撤销上一次组织操作")
+        self.undo_action.triggered.connect(self._on_undo)
+        edit_menu.addAction(self.undo_action)
 
         help_menu = self.menuBar().addMenu("帮助")
         about_action = QAction("关于", self)
@@ -94,6 +102,7 @@ class MainWindow(QMainWindow):
         self.tag_view.finished.connect(self._on_tag_review_finished)
         self.rules_view.finished.connect(self._on_rules_ready)
         self.preview_view.back.connect(lambda: self.switch_view(2))
+        self.preview_view.apply_requested.connect(self._on_apply_requested)
         self.switch_view(0)
 
     # ---- 工作流接线 ----
@@ -146,6 +155,72 @@ class MainWindow(QMainWindow):
         self._thread = None
         QMessageBox.critical(self, "处理失败", message)
         self.statusBar().showMessage("处理失败")
+
+    # ---- Phase 7：应用变更 / 撤销 ----
+
+    def _on_apply_requested(self) -> None:
+        report = self.preview_view._report
+        if report is None or not report.safe_moves or self._thread is not None:
+            return
+        if not self._confirm_apply(len(report.safe_moves)):
+            return
+        self.preview_view._apply_btn.setEnabled(False)
+        self.preview_view._apply_btn.setText("应用中…")
+        worker = ApplyWorker(report.safe_moves)
+        worker.finished.connect(self._on_apply_finished)
+        worker.error.connect(self._on_worker_error)
+        self._thread = start_worker(worker, self)
+
+    def _on_apply_finished(self, pairs: list, errors: list) -> None:
+        self._thread = None
+        self.preview_view._apply_btn.setText("应用变更")
+        if pairs:
+            record_operation(self._db, pairs)
+            self.undo_action.setEnabled(True)
+            self.statusBar().showMessage(f"已移动 {len(pairs)} 个文件")
+        else:
+            self.statusBar().showMessage("没有文件被移动")
+        if errors:
+            self._show_apply_errors(errors)
+
+    def _on_undo(self) -> None:
+        if self._thread is not None:
+            return
+        worker = UndoWorker(self._db.path)
+        worker.finished.connect(self._on_undo_finished)
+        worker.error.connect(self._on_worker_error)
+        self._thread = start_worker(worker, self)
+
+    def _on_undo_finished(self, record, errors: list) -> None:
+        self._thread = None
+        if record is None:
+            self.undo_action.setEnabled(False)
+            self.statusBar().showMessage("没有可撤销的操作")
+            return
+        self.statusBar().showMessage(f"已撤销：恢复 {len(record.moves)} 个文件")
+        self.undo_action.setEnabled(has_undoable(self._db))
+        if errors:
+            self._show_undo_errors(errors)
+
+    def _confirm_apply(self, count: int) -> bool:
+        """弹窗确认应用；返回是否继续（测试可 monkeypatch 此方法）。"""
+        return QMessageBox.question(
+            self,
+            "确认应用",
+            f"将移动 {count} 个文件，确定执行？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        ) == QMessageBox.Yes
+
+    def _show_apply_errors(self, errors: list) -> None:
+        QMessageBox.warning(
+            self, "部分文件未移动", "\n".join(errors[:20])
+        )
+
+    def _show_undo_errors(self, errors: list) -> None:
+        QMessageBox.warning(
+            self, "部分文件未能恢复", "\n".join(errors[:20])
+        )
 
     # ---- 辅助 ----
 

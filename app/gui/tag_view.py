@@ -169,8 +169,11 @@ class TagView(QWidget):
 
     def _clear_tags(self) -> None:
         while (item := self._tags_layout.takeAt(0)) is not None:
-            if item.widget() is not None:
-                item.widget().deleteLater()
+            if item.spacerItem() is not None:
+                continue  # 分隔项无需删除
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
 
     def _render_tags(self, file_id: int) -> None:
         """从数据库读取该文件标签并重建 chips。"""

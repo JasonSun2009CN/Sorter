@@ -122,3 +122,32 @@ def test_clear_resets(qapp, tmp_path):
     assert not view._empty_hint.isHidden()
     assert view._table.isHidden()
     view.deleteLater()
+
+
+# ---- Phase 7：应用按钮 ----
+
+def test_apply_button_enabled_when_safe_moves(qapp, tmp_path):
+    view = PreviewView()
+    report = _report(tmp_path)  # 无冲突 → 有 safe_moves
+    view.load_preview(report, root=tmp_path)
+    assert view._apply_btn.isEnabled() is True
+    view.deleteLater()
+
+
+def test_apply_button_disabled_when_all_blocked(qapp, tmp_path):
+    view = PreviewView()
+    report = _report(tmp_path, collide=True)  # 全冲突 → 无 safe_moves
+    view.load_preview(report, root=tmp_path)
+    assert view._apply_btn.isEnabled() is False
+    view.deleteLater()
+
+
+def test_apply_requested_signal(qapp, tmp_path):
+    view = PreviewView()
+    fired = []
+    view.apply_requested.connect(lambda: fired.append(True))
+    report = _report(tmp_path)
+    view.load_preview(report, root=tmp_path)
+    view._apply_btn.click()
+    assert fired == [True]
+    view.deleteLater()
