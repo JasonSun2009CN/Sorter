@@ -1,19 +1,21 @@
 # =============================================================================
-# app/core/tagging.py —— 确定性系统标签（Phase 2）
+# app/core/tagging.py —— 标签生成与持久化（Phase 2 + Phase 3）
 #
 # 作用：
-#   基于确定性的文件元数据自动生成系统标签并写入数据库：
-#   类型（pdf / image / archive ...）、大文件、最近修改、重复、所属目录。
-#   不做任何 ML 预测，是 learned 标签的基础。
+#   - 确定性系统标签（Phase 2）：基于元数据生成 —— 类型（pdf / image /
+#     archive ...）、大文件、最近修改、重复、所属目录。
+#   - 学习标签（Phase 3）：基于用户修正样本训练分类器，为文件预测
+#     learned 标签并附置信度。
 #
-# 大致结构：
+# 结构：
 #   TAG_LARGE_FILE / TAG_RECENTLY_MODIFIED / TAG_DUPLICATE ...
 #   def compute_system_tags(f, *, duplicate, ...) -> list[str]  # 纯计算
 #   def assign_system_tags(db, files) -> int                    # 计算 + 写库
+#   def assign_learned_tags(db, files) -> int                   # ML 预测 + 写库
 #   def _ensure_tag(conn, name, kind) -> int                    # 幂等写 tags
 # =============================================================================
 
-"""确定性系统标签的生成与持久化。"""
+"""系统标签生成 + 学习标签预测的入口。"""
 
 from __future__ import annotations
 
@@ -23,6 +25,9 @@ from typing import Iterable
 from app.core import metadata
 from app.core.scanner import ScannedFile
 from app.database import Database
+from app.ml.classifier import TagClassifier
+from app.ml.features import build_corpus, make_vectorizer
+from app.ml.training import load_training_data
 
 # 系统标签名常量
 TAG_LARGE_FILE = "large-file"
@@ -118,6 +123,80 @@ def assign_system_tags(
                     "(file_id, tag_id, confidence, source) "
                     "VALUES (?, ?, ?, 'system')",
                     (row["id"], tag_id, 1.0),
+                )
+                written += 1
+    return written
+
+
+# ---- Phase 3：学习标签 ----
+
+# 训练所需的最少已标注样本数 / 标签种类数
+LEARNED_MIN_SAMPLES = 3
+# 置信度阈值：低于该值的预测标签不写入
+LEARNED_THRESHOLD = 0.35
+# 每个文件最多写入的学习标签数
+LEARNED_TOP_K = 3
+
+
+def assign_learned_tags(
+    db: Database,
+    files: Iterable[ScannedFile],
+    *,
+    min_samples: int = LEARNED_MIN_SAMPLES,
+    threshold: float = LEARNED_THRESHOLD,
+    top_k: int = LEARNED_TOP_K,
+) -> int:
+    """基于用户修正样本训练分类器，为已索引文件预测 learned 标签并写库。
+
+    流程：提取文本 → TF-IDF（全量语料上估计 IDF）→ 用已标注文件训练
+    OneVsRest 分类器 → 对全部文件预测 → 按置信度写 ``file_tags``
+    （source='learned'）。
+
+    训练数据不足（已标注文件少于 ``min_samples``，或标签种类少于 2 个）
+    时返回 0，不做预测。返回写入的 file_tags 关联条数。
+    """
+    files = list(files)
+    if not files:
+        return 0
+
+    labels_by_path = {str(f.path): tags for f, tags in load_training_data(db)}
+    labeled = [f for f in files if str(f.path) in labels_by_path]
+    if len(labeled) < min_samples:
+        return 0
+    all_tags = set().union(*labels_by_path.values()) if labels_by_path else set()
+    if len(all_tags) < 2:
+        return 0
+
+    # 全量语料统一提取文本并拟合适配 IDF，避免对同一文件重复解析
+    corpus = build_corpus(files)
+    vectorizer = make_vectorizer()
+    try:
+        X = vectorizer.fit_transform(corpus)
+    except ValueError:
+        return 0  # 语料无法产生任何特征（如全部是单字符文件名），跳过
+    idx = {str(f.path): i for i, f in enumerate(files)}
+    X_train = X[[idx[str(f.path)] for f in labeled]]
+    y_train = [labels_by_path[str(f.path)] for f in labeled]
+
+    classifier = TagClassifier(threshold=threshold, top_k=top_k)
+    classifier.train(X_train, y_train)
+    predictions = classifier.predict(X)
+
+    written = 0
+    with db.transaction() as conn:
+        for f, tags in zip(files, predictions):
+            row = conn.execute(
+                "SELECT id FROM files WHERE path = ?", (str(f.path),)
+            ).fetchone()
+            if row is None:
+                continue  # 未索引，跳过
+            for tag, score in tags:
+                tag_id = _ensure_tag(conn, tag, "learned")
+                conn.execute(
+                    "INSERT OR IGNORE INTO file_tags "
+                    "(file_id, tag_id, confidence, source) "
+                    "VALUES (?, ?, ?, 'learned')",
+                    (row["id"], tag_id, score),
                 )
                 written += 1
     return written

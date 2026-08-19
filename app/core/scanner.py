@@ -59,6 +59,20 @@ class ScannedFile:
         )
 
 
+def _is_db_sidecar(candidate: Path, db_abs: Path) -> bool:
+    """判断候选路径是否为数据库文件及其 WAL/SHM 伴生文件。
+
+    SQLite 在 WAL 模式下会在同目录生成 ``<db>-wal`` / ``<db>-shm``，
+    这些不应被当作业务文件索引。
+    """
+    if candidate == db_abs:
+        return True
+    return candidate in {
+        Path(str(db_abs) + "-wal"),
+        Path(str(db_abs) + "-shm"),
+    }
+
+
 class Scanner:
     """递归文件扫描器。只读收集信息，绝不修改源文件。"""
 
@@ -75,7 +89,7 @@ class Scanner:
         """递归扫描 root 目录下所有文件。
 
         - ignore_hidden=True 时跳过名称以 ``.`` 开头的文件与目录；
-        - db_path 非空时跳过与数据库文件相同的路径（避免把自己索引进去）；
+        - db_path 非空时跳过数据库文件及其 WAL/SHM 伴生文件（避免把自己索引进去）；
         - 不跟随目录符号链接；单个文件 stat 失败时静默跳过。
         """
         root = Path(root).expanduser().resolve()
@@ -88,7 +102,7 @@ class Scanner:
                 filenames = [f for f in filenames if not f.startswith(".")]
             for filename in filenames:
                 candidate = Path(dirpath) / filename
-                if db_abs is not None and candidate.resolve() == db_abs:
+                if db_abs is not None and _is_db_sidecar(candidate.resolve(), db_abs):
                     continue
                 try:
                     files.append(ScannedFile.from_path(candidate))
