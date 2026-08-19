@@ -29,7 +29,10 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 
+from app.core.organizer import build_plan
+from app.core.preview import generate_preview
 from app.database import Database
+from app.database.queries import get_tags_by_path
 from app.database.rules import save_rule
 from app.gui.preview_view import PreviewView
 from app.gui.rules_view import RulesView
@@ -90,6 +93,7 @@ class MainWindow(QMainWindow):
         self.scan_view.files_scanned.connect(self._on_scan_finished)
         self.tag_view.finished.connect(self._on_tag_review_finished)
         self.rules_view.finished.connect(self._on_rules_ready)
+        self.preview_view.back.connect(lambda: self.switch_view(2))
         self.switch_view(0)
 
     # ---- 工作流接线 ----
@@ -128,7 +132,15 @@ class MainWindow(QMainWindow):
         rule = self.rules_view.current_rule()
         if rule.levels:
             save_rule(self._db, self.rules_view.rule_name(), rule)
-        self.switch_view(3)  # 预览占位页（Phase 6）
+        root = self.scan_view.folder()
+        tags = get_tags_by_path(self._db)
+        moves = build_plan(
+            [(f, tags.get(str(f.path), set())) for f in self._last_files],
+            rule,
+            root,
+        )
+        self.preview_view.load_preview(generate_preview(moves), root=root)
+        self.switch_view(3)  # 变更预览（Phase 6）
 
     def _on_worker_error(self, message: str) -> None:
         self._thread = None
@@ -140,7 +152,7 @@ class MainWindow(QMainWindow):
     def switch_view(self, index: int) -> None:
         """切换到指定视图并给出状态栏提示。"""
         self.stack.setCurrentIndex(index)
-        hints = {0: "① 选择文件夹并扫描", 1: "② 审核标签", 2: "③ 定义组织规则", 3: "④ 预览（下一阶段）"}
+        hints = {0: "① 选择文件夹并扫描", 1: "② 审核标签", 2: "③ 定义组织规则", 3: "④ 变更预览"}
         self.statusBar().showMessage(hints.get(index, ""))
 
     def _show_about(self) -> None:

@@ -110,8 +110,9 @@ def test_switch_view_through_workflow(qapp, env):
         win.tag_view.finished.emit()
         assert win.stack.currentIndex() == 2  # 组织规则
         win.rules_view.finished.emit()
-        assert win.stack.currentIndex() == 3  # 预览占位页
+        assert win.stack.currentIndex() == 3  # 变更预览
         assert get_last_rule(db) is None      # 空规则不保存
+        assert win.preview_view._empty_hint.isHidden() is False  # 空规则 → 空态
     finally:
         win.close()
 
@@ -125,11 +126,15 @@ def test_rules_ready_saves_rule(qapp, env):
         win._on_tagging_finished(files, n_system=5, n_learned=0)
         win.tag_view.finished.emit()  # → 规则视图载入文件
         win.rules_view.add_level(RuleLevel(KIND_EXTENSION))
-        win.rules_view.finished.emit()  # → 保存规则 + 切换预览
+        win.rules_view.finished.emit()  # → 保存规则 + 生成预览 + 切换
         assert win.stack.currentIndex() == 3
         last = get_last_rule(db)
         assert last is not None
         assert last[1].levels[0].kind == KIND_EXTENSION
+        # 两个 txt 文件 → 预览表 2 行（TXT 目录，无冲突）
+        assert win.preview_view._table.rowCount() == 2
+        assert win.preview_view._conflicts_panel.isHidden()  # 无冲突
+        assert "将移动 2 个文件" in win.preview_view._summary.text()
     finally:
         win.close()
 
