@@ -249,3 +249,64 @@ def test_rules_view_rerender_no_overlap(qapp, env):
         assert view._levels_layout.count() == first  # 结构操作后无残留
     finally:
         win.close()
+
+
+# ---- 内容识别 / 自动规划 ----
+
+def test_tag_view_shows_summary(qapp, env):
+    db, files = env
+    win = MainWindow(db)
+    try:
+        view = win.tag_view
+        view.load_files(files)
+        view._table.setCurrentCell(0, 0)
+        assert view._summary_label.isHidden()  # 尚未生成概述
+
+        from app.database.summaries import save_summaries
+        fid = view._current_file_id()
+        row = db.query("SELECT path FROM files WHERE id = ?", (fid,))[0]
+        save_summaries(db, [(row["path"], "类型：text · 关键词：alpha")])
+        # 切换选中触发刷新
+        view._table.setCurrentCell(1, 0)
+        view._table.setCurrentCell(0, 0)
+        assert view._summary_label.isHidden() is False
+        assert "关键词" in view._summary_label.text()
+    finally:
+        win.close()
+
+
+def test_auto_plan_button_drives_preview(qapp, env):
+    db, files = env
+    win = MainWindow(db)
+    try:
+        root = files[0].path.parent
+        win.scan_view.set_folder(root)
+        win._on_tagging_finished(files, n_system=5, n_learned=0, n_content=4, n_summary=2)
+        win.tag_view.finished.emit()
+        # 「自动整理」按钮存在，点击 → 按类型自动规划 → 预览
+        win.rules_view._auto_btn.click()
+        assert win.stack.currentIndex() == 3
+        assert win.preview_view._table.rowCount() >= 2  # 两个 txt 按类型
+        assert win.preview_view._apply_btn.isEnabled() is True
+    finally:
+        win.close()
+
+
+def test_auto_plan_then_apply_undo(qapp, env, monkeypatch):
+    db, files = env
+    win = MainWindow(db)
+    try:
+        root = files[0].path.parent
+        win.scan_view.set_folder(root)
+        win._on_tagging_finished(files, n_system=5, n_learned=0)
+        win.tag_view.finished.emit()
+        win.rules_view._auto_btn.click()  # 自动规划 → 预览
+
+        monkeypatch.setattr(win, "_confirm_apply", lambda count: True)
+        monkeypatch.setattr("app.gui.main_window.start_worker", lambda w, o: w.run())
+        win.preview_view._apply_btn.click()
+        assert (root / "text" / "a.txt").exists()  # 自动规划按类型移动
+        win.undo_action.trigger()
+        assert (root / "a.txt").exists()           # 撤销恢复
+    finally:
+        win.close()

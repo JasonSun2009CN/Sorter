@@ -37,16 +37,23 @@ VECTORIZER_KWARGS: dict = {
 }
 
 
-def build_corpus(files: Iterable[ScannedFile]) -> list[str]:
+def build_corpus(
+    files: Iterable[ScannedFile],
+    texts: dict[str, str | None] | None = None,
+) -> list[str]:
     """把每个文件拼成一条语料文本：文件名（去扩展名）+ 父目录 + 扩展名 + 提取文本。
 
     文件名与目录里的下划线 / 连字符会替换为空格，为 char_wb 提供词边界。
+    传入 ``texts``（{path: 文本}）时复用已有提取结果，避免重复读取文件。
     """
     corpus: list[str] = []
     for f in files:
         stem = f.path.stem.replace("_", " ").replace("-", " ")
         parent = f.path.parent.name
-        text = extract_text(f.path) or ""
+        if texts is not None:
+            text = texts.get(str(f.path)) or ""
+        else:
+            text = extract_text(f.path) or ""
         corpus.append(f"{stem} {parent} {f.extension} {text}".strip())
     return corpus
 

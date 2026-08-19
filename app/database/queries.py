@@ -70,6 +70,30 @@ def get_tags_by_path(db: Database) -> dict[str, set[str]]:
     return result
 
 
+def get_tag_scores_by_path(db: Database) -> dict[str, list[tuple[str, str, float]]]:
+    """返回 文件路径 → [(标签, source, confidence)]，按 source 优先级 + 置信度降序。
+
+    source 优先级：user(0) > learned(1) > system(2)（自动规划挑选最佳标签用）。
+    """
+    rows = db.query(
+        """
+        SELECT f.path AS path, t.name AS tag, ft.source AS source, ft.confidence AS confidence
+          FROM files f
+          JOIN file_tags ft ON ft.file_id = f.id
+          JOIN tags  t      ON t.id  = ft.tag_id
+        """
+    )
+    priority = {"user": 0, "learned": 1, "system": 2}
+    result: dict[str, list[tuple[str, str, float]]] = {}
+    for row in rows:
+        result.setdefault(row["path"], []).append(
+            (row["tag"], row["source"], float(row["confidence"]))
+        )
+    for scored in result.values():
+        scored.sort(key=lambda item: (priority.get(item[1], 9), -item[2]))
+    return result
+
+
 def _tag_id(db: Database, tag: str) -> int | None:
     """按名称查标签 id；不存在返回 None。"""
     rows = db.query("SELECT id FROM tags WHERE name = ?", (tag,))

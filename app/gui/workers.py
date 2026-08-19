@@ -96,10 +96,10 @@ class ScanWorker(QObject):
 
 
 class TagWorker(QObject):
-    """为已索引文件生成系统标签 + 学习标签。"""
+    """为已索引文件生成系统标签 + 内容关键词标签 + 概述 + 学习标签。"""
 
     progress = Signal(str)
-    finished = Signal(list, int, int)  # files, n_system_tags, n_learned_tags
+    finished = Signal(list, int, int, int, int)  # files, n_system, n_content, n_summary, n_learned
     error = Signal(str)
 
     def __init__(self, db_path: "str | Path", files: list) -> None:
@@ -109,16 +109,35 @@ class TagWorker(QObject):
 
     def run(self) -> None:
         # 延迟导入：sklearn 首次导入较慢，留在此线程内完成
-        from app.core.tagging import assign_learned_tags, assign_system_tags
+        from app.core.extractor import IMAGE_EXTS, extract_text, ocr_hint
+        from app.core.summarizer import build_summaries
+        from app.core.tagging import assign_content_tags, assign_learned_tags, assign_system_tags
         from app.database import Database
+        from app.database.summaries import save_summaries
 
         db = Database(self._db_path)
         try:
             self.progress.emit("正在生成系统标签…")
             n_system = assign_system_tags(db, self._files)
+
+            # 一次内容提取，供内容标签 / 概述 / ML 语料复用
+            self.progress.emit("正在识别文件内容…")
+            if any(f.extension in IMAGE_EXTS for f in self._files):
+                hint = ocr_hint()
+                if hint:
+                    self.progress.emit(hint)
+            texts: dict[str, str | None] = {}
+            total = len(self._files)
+            for i, f in enumerate(self._files):
+                if i % 20 == 0:
+                    self.progress.emit(f"正在识别文件内容… ({i}/{total})")
+                texts[str(f.path)] = extract_text(f.path)
+
+            n_content = assign_content_tags(db, self._files, texts=texts)
+            n_summary = save_summaries(db, build_summaries(self._files, texts))
             self.progress.emit("正在预测学习标签…")
-            n_learned = assign_learned_tags(db, self._files)
-            self.finished.emit(self._files, n_system, n_learned)
+            n_learned = assign_learned_tags(db, self._files, texts=texts)
+            self.finished.emit(self._files, n_system, n_content, n_summary, n_learned)
         except Exception as exc:  # noqa: BLE001
             self.error.emit(str(exc))
         finally:

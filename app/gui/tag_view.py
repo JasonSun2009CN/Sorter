@@ -46,6 +46,7 @@ from app.database.queries import (
     remove_user_tag,
     set_tag_accepted,
 )
+from app.database.summaries import get_summary
 from app.gui.formatting import format_mtime, format_size
 from app.gui.widgets import make_file_table
 
@@ -81,6 +82,11 @@ class TagView(QWidget):
         self._header = QLabel("选择左侧文件以查看标签")
         self._header.setWordWrap(True)
 
+        self._summary_label = QLabel()
+        self._summary_label.setWordWrap(True)
+        self._summary_label.setStyleSheet("color:#64748B; font-size:12px;")
+        self._summary_label.setVisible(False)
+
         self._tags_container = QWidget()
         self._tags_layout = QVBoxLayout(self._tags_container)
         self._tags_layout.setAlignment(Qt.AlignTop)
@@ -105,6 +111,7 @@ class TagView(QWidget):
 
         right = QVBoxLayout()
         right.addWidget(self._header)
+        right.addWidget(self._summary_label)
         right.addWidget(scroll, 1)
         right.addLayout(bottom)
 
@@ -138,6 +145,7 @@ class TagView(QWidget):
             self._table.setItem(r, 1, QTableWidgetItem(format_size(f.size)))
             self._table.setItem(r, 2, QTableWidgetItem(format_mtime(f.mtime)))
         self._header.setText("选择左侧文件以查看标签")
+        self._summary_label.setVisible(False)
         self._clear_tags()
         if self._table.rowCount() > 0:
             self._table.setCurrentCell(0, 0)
@@ -148,6 +156,7 @@ class TagView(QWidget):
         file_id = self._current_file_id()
         if file_id is None:
             self._header.setText("选择左侧文件以查看标签")
+            self._summary_label.setVisible(False)
             self._clear_tags()
             return
         rows = self._db.query(
@@ -158,6 +167,9 @@ class TagView(QWidget):
             self._header.setText(
                 f"{info['path']}\n{format_size(info['size'])} · {format_mtime(info['mtime'])}"
             )
+        summary = get_summary(self._db, file_id)
+        self._summary_label.setText(summary or "")
+        self._summary_label.setVisible(bool(summary))
         self._render_tags(file_id)
 
     def _current_file_id(self) -> int | None:

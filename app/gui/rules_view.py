@@ -56,9 +56,10 @@ from app.database.rules import get_last_rule, save_rule
 
 
 class RulesView(QWidget):
-    """工作流第 ③ 步：定义组织规则。"""
+    """工作流第 ③ 步：定义组织规则（或一键自动整理）。"""
 
-    finished = Signal()  # 「完成 / 下一步」被点击
+    finished = Signal()       # 「完成 / 下一步」被点击（手动规则）
+    auto_requested = Signal()  # 「自动整理」被点击
 
     def __init__(self, db: Database) -> None:
         super().__init__()
@@ -114,13 +115,19 @@ class RulesView(QWidget):
         self._save_btn = QPushButton("保存规则")
         self._save_btn.clicked.connect(self._save_rule)
 
+        self._auto_btn = QPushButton("自动整理")
+        self._auto_btn.setObjectName("accent")
+        self._auto_btn.setToolTip("按每个文件的最佳标签自动规划目标结构（预览后确认）")
+        self._auto_btn.clicked.connect(self.auto_requested.emit)
+
         self._done_btn = QPushButton("完成 / 下一步")
-        self._done_btn.setObjectName("accent")
+        self._done_btn.setObjectName("ghost")
         self._done_btn.clicked.connect(self.finished.emit)
 
         bottom = QHBoxLayout()
         bottom.addWidget(self._save_btn)
         bottom.addStretch(1)
+        bottom.addWidget(self._auto_btn)
         bottom.addWidget(self._done_btn)
 
         left = QVBoxLayout()

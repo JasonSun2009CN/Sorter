@@ -23,7 +23,9 @@ import sqlite3
 from typing import Iterable
 
 from app.core import metadata
+from app.core.extractor import extract_text
 from app.core.scanner import ScannedFile
+from app.core.summarizer import keyword_scores
 from app.database import Database
 from app.ml.classifier import TagClassifier
 from app.ml.features import build_corpus, make_vectorizer
@@ -37,6 +39,12 @@ TAG_DUPLICATE = "duplicate"
 # 判定阈值
 LARGE_FILE_THRESHOLD = 100 * 1024 * 1024  # 100 MiB
 RECENT_DAYS = 30
+
+# 系统标签词汇：内容关键词与之冲突时跳过（tags.kind 首写获胜会变只读系统 chip）
+SYSTEM_TAG_NAMES: frozenset[str] = frozenset(
+    set(metadata.EXTENSION_TYPES.values())
+    | {TAG_LARGE_FILE, TAG_RECENTLY_MODIFIED, TAG_DUPLICATE}
+)
 
 
 def compute_system_tags(
@@ -128,6 +136,53 @@ def assign_system_tags(
     return written
 
 
+# ---- 内容关键词标签（识别内容自动打标签，无需训练数据） ----
+
+def assign_content_tags(
+    db: Database,
+    files: Iterable[ScannedFile],
+    *,
+    texts: dict[str, str | None] | None = None,
+    top_n: int = 2,
+) -> int:
+    """基于内容关键词自动打标签：每文件取 top_n 个关键词写入 learned 标签。
+
+    - ``texts`` 为 {path: 提取文本} 复用一次提取（不传则内部重新 extract_text）；
+    - 关键词与系统标签词汇冲突时跳过（避免 tags.kind 首写获胜变只读）；
+    - 置信度 = 归一化频次，夹在 [0.4, 0.9]；
+    - 用户接受/拒绝这些标签会自动写入 training_feedback，成为 ML 训练数据。
+    返回写入的 file_tags 关联条数。
+    """
+    files = list(files)
+    written = 0
+    with db.transaction() as conn:
+        for f in files:
+            row = conn.execute(
+                "SELECT id FROM files WHERE path = ?", (str(f.path),)
+            ).fetchone()
+            if row is None:
+                continue  # 未索引，跳过
+            if texts is not None:
+                text = texts.get(str(f.path))
+            else:
+                text = extract_text(f.path)
+            if not text:
+                continue
+            for tag, score in keyword_scores(text, top_n=top_n):
+                if tag in SYSTEM_TAG_NAMES:
+                    continue
+                tag_id = _ensure_tag(conn, tag, "learned")
+                confidence = round(min(0.9, max(0.4, score)), 3)
+                conn.execute(
+                    "INSERT OR IGNORE INTO file_tags "
+                    "(file_id, tag_id, confidence, source) "
+                    "VALUES (?, ?, ?, 'learned')",
+                    (row["id"], tag_id, confidence),
+                )
+                written += 1
+    return written
+
+
 # ---- Phase 3：学习标签 ----
 
 # 训练所需的最少已标注样本数 / 标签种类数
@@ -145,6 +200,7 @@ def assign_learned_tags(
     min_samples: int = LEARNED_MIN_SAMPLES,
     threshold: float = LEARNED_THRESHOLD,
     top_k: int = LEARNED_TOP_K,
+    texts: dict[str, str | None] | None = None,
 ) -> int:
     """基于用户修正样本训练分类器，为已索引文件预测 learned 标签并写库。
 
@@ -168,7 +224,7 @@ def assign_learned_tags(
         return 0
 
     # 全量语料统一提取文本并拟合适配 IDF，避免对同一文件重复解析
-    corpus = build_corpus(files)
+    corpus = build_corpus(files, texts=texts)
     vectorizer = make_vectorizer()
     try:
         X = vectorizer.fit_transform(corpus)

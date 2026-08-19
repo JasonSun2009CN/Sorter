@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 
+from app.core.autoplan import auto_plan
 from app.core.history import has_undoable, record_operation
 from app.core.organizer import build_plan
 from app.core.preview import generate_preview
@@ -101,6 +102,7 @@ class MainWindow(QMainWindow):
         self.scan_view.files_scanned.connect(self._on_scan_finished)
         self.tag_view.finished.connect(self._on_tag_review_finished)
         self.rules_view.finished.connect(self._on_rules_ready)
+        self.rules_view.auto_requested.connect(self._on_auto_plan)
         self.preview_view.back.connect(lambda: self.switch_view(2))
         self.preview_view.apply_requested.connect(self._on_apply_requested)
         self.switch_view(0)
@@ -124,13 +126,15 @@ class MainWindow(QMainWindow):
         worker.error.connect(self._on_worker_error)
         self._thread = start_worker(worker, self)
 
-    def _on_tagging_finished(self, files: list, n_system: int, n_learned: int) -> None:
+    def _on_tagging_finished(
+        self, files: list, n_system: int, n_content: int = 0, n_summary: int = 0, n_learned: int = 0,
+    ) -> None:
         self._thread = None
         self._last_files = files
         self.tag_view.load_files(files)
         self.switch_view(1)
         self.statusBar().showMessage(
-            f"标签生成完成：系统 {n_system} 条，学习 {n_learned} 条"
+            f"标签生成完成：系统 {n_system} · 内容 {n_content} · 概述 {n_summary} · 学习 {n_learned}"
         )
 
     def _on_tag_review_finished(self) -> None:
@@ -150,6 +154,13 @@ class MainWindow(QMainWindow):
         )
         self.preview_view.load_preview(generate_preview(moves), root=root)
         self.switch_view(3)  # 变更预览（Phase 6）
+
+    def _on_auto_plan(self) -> None:
+        """自动规划整理：按每文件最佳标签生成计划 → 预览 → 确认。"""
+        root = self.scan_view.folder()
+        moves = auto_plan(self._db, self._last_files, root)
+        self.preview_view.load_preview(generate_preview(moves), root=root)
+        self.switch_view(3)
 
     def _on_worker_error(self, message: str) -> None:
         self._thread = None

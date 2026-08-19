@@ -5,10 +5,14 @@ description = "A personal file manager"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "mutagen>=1.48.1",
+    "openpyxl>=3.1.5",
     "pillow>=12.3.0",
     "pymupdf>=1.28.2",
     "pyside6>=6.11.2",
+    "pytesseract>=0.3.13",
     "python-docx>=1.2.0",
+    "python-pptx>=1.0.2",
     "scikit-learn>=1.9.0",
 ]
 

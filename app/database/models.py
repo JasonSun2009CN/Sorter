@@ -87,6 +87,14 @@ SCHEMA: dict[str, str] = {
             updated_at TEXT    NOT NULL
         )
     """,
+    # 文件内容概述（识别内容后生成，新表免迁移）
+    "file_summaries": """
+        CREATE TABLE IF NOT EXISTS file_summaries (
+            file_id    INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+            summary    TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL
+        )
+    """,
 }
 
 # 建表后补充的常用索引（同样幂等）
