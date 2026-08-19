@@ -265,7 +265,9 @@ class RulesView(QWidget):
             row.addWidget(up)
             row.addWidget(down)
             row.addWidget(remove)
-            self._levels_layout.addLayout(row)
+            container = QWidget()
+            container.setLayout(row)
+            self._levels_layout.addWidget(container)
         if not levels:
             hint = QLabel("规则为空，文件将不被移动")
             hint.setStyleSheet("color:#64748B;")

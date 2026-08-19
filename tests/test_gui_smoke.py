@@ -214,3 +214,38 @@ def test_apply_cancel_moves_nothing(qapp, env, monkeypatch):
         assert win.preview_view._apply_btn.isEnabled() is True  # 仍可重试
     finally:
         win.close()
+
+
+# ---- 排版回归：重复渲染不残留（标签重叠 bug） ----
+
+def test_tag_view_rerender_no_overlap(qapp, env):
+    db, files = env
+    win = MainWindow(db)
+    try:
+        view = win.tag_view
+        view.load_files(files)
+        view._table.setCurrentCell(0, 0)
+        first = view._tags_layout.count()
+        assert first > 0
+        # 反复切换选择 → 每次重新渲染 chips
+        view._table.setCurrentCell(1, 0)
+        view._table.setCurrentCell(0, 0)
+        view._table.setCurrentCell(1, 0)
+        assert view._tags_layout.count() == first  # 无残留累积（旧 chip 不会重叠）
+    finally:
+        win.close()
+
+
+def test_rules_view_rerender_no_overlap(qapp, env):
+    db, files = env
+    win = MainWindow(db)
+    try:
+        view = win.rules_view
+        view.add_level(RuleLevel(KIND_TYPE))
+        first = view._levels_layout.count()
+        view.add_level(RuleLevel(KIND_EXTENSION))
+        view.move_level(1, -1)
+        view.remove_level(1)
+        assert view._levels_layout.count() == first  # 结构操作后无残留
+    finally:
+        win.close()

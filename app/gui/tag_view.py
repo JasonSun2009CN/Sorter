@@ -199,7 +199,7 @@ class TagView(QWidget):
                 row = self._chip_row(
                     r["tag"], _STYLE_USER, [("✗ 移除", "danger", self._remove_user_tag)], file_id, r
                 )
-            self._tags_layout.addLayout(row)
+            self._tags_layout.addWidget(row)
         if not has_learned:
             hint = QLabel("暂无学习标签 — 添加用户标签后重新扫描，将产生个性化预测")
             hint.setStyleSheet(_STYLE_HINT)
@@ -208,8 +208,12 @@ class TagView(QWidget):
         self._tags_layout.addStretch(1)
 
     @staticmethod
-    def _chip_row(label_text, style, buttons, file_id, row) -> QHBoxLayout:
-        """构造一行 chip：标签 + 若干操作按钮。"""
+    def _chip_row(label_text, style, buttons, file_id, row) -> QWidget:
+        """构造一行 chip：标签 + 若干操作按钮（独立 QWidget，便于重建时整体删除）。
+
+        必须返回 QWidget 而不是子布局：子布局被 takeAt 取出时其内部 widget
+        不会被清理，残留显示导致标签重叠。
+        """
         chip = QLabel(label_text)
         chip.setStyleSheet(style)
         line = QHBoxLayout()
@@ -222,7 +226,9 @@ class TagView(QWidget):
                 lambda _=False, h=handler, fid=file_id, tag=row["tag"], src=row["source"]: h(fid, tag, src)
             )
             line.addWidget(btn)
-        return line
+        container = QWidget()
+        container.setLayout(line)
+        return container
 
     # ---- 操作槽 ----
 
