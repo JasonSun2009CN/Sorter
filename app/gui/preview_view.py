@@ -1,15 +1,29 @@
 # =============================================================================
-# app/gui/preview_view.py —— 变更预览视图（工作流步骤 ④）
+# app/gui/preview_view.py —— 变更预览视图（工作流步骤 ④，占位）
 #
 # 作用：
-#   核心安全机制。在真正移动文件之前，以表格展示每个文件的
-#   old path → new path，并列出冲突、重复、低置信度等警告。
-#   用户确认后才允许应用变更。
-#
-# 大致结构：
-#   class PreviewView(QWidget)
-#       _build_ui()               # 变更表格 + 警告区 + [取消][应用] 按钮
-#       populate(changes)         # 渲染 old→new 清单与警告
-#       apply_changes()           # 确认后调用 app.core.organizer 执行移动
-#       cancelled()               # 用户取消
+#   Phase 6 实现：展示 old→new 路径、冲突与警告，作为应用变更前的
+#   安全检查。本阶段仅提供占位页，保持类名与 _build_ui 结构。
 # =============================================================================
+
+"""变更预览视图（Phase 6 占位页）。"""
+
+from __future__ import annotations
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+
+
+class PreviewView(QWidget):
+    """工作流第 ④ 步：预览变更（待 Phase 6 实现）。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        label = QLabel("变更预览（Phase 6）\n\n将在这里展示每个文件 old → new 路径、冲突与警告。敬请期待。")
+        label.setAlignment(Qt.AlignCenter)
+        label.setStyleSheet("color:#64748B; font-size:15px;")
+        layout = QVBoxLayout(self)
+        layout.addWidget(label)
