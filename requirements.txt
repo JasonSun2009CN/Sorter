@@ -1,0 +1,27 @@
+# Runtime dependencies (synced from pyproject.toml)
+# 用法：pip install -r requirements.txt
+# 推荐用 uv：uv sync（依赖锁见 uv.lock）
+
+# GUI
+pyside6>=6.11.2
+
+# 内容 / 元数据提取
+pillow>=12.3.0
+pymupdf>=1.28.2
+python-docx>=1.2.0
+python-pptx>=1.0.2
+openpyxl>=3.1.5
+mutagen>=1.48.1
+pytesseract>=0.3.13
+
+# 本地机器学习（TF-IDF + 分类器）
+scikit-learn>=1.9.0
+
+# ---- 系统依赖（非 pip，需要单独装） ----
+# 图片 OCR 使用 Tesseract：
+#   macOS:   brew install tesseract
+#   Ubuntu:  sudo apt install tesseract-ocr
+#   Windows: https://github.com/UB-Mannheim/tesseract/wiki
+# 中文 OCR 语言包（可选，缺则中文图片用英文识别）：
+#   macOS:   brew install tesseract-lang
+#   Ubuntu:  sudo apt install tesseract-ocr-chi-sim
