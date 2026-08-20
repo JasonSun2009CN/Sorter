@@ -1,97 +1,99 @@
 # Sorter
 
+> 🌐 **Language / 语言**: [English](README.md) · [中文](README.zh.md)
+
 A **local-first** personal file organizer. Scan a folder, recognize what's inside (OCR for images, text extraction for documents), auto-summarize and auto-tag every file, then let the app organize them — automatically or under rules you define — with a full preview before anything moves and one-click undo afterwards.
 
 ```text
-扫描 → 识别内容（OCR / 文档）→ 概述 + 自动标签 → 审核标签
-   → 自动规划 / 手动规则 → 预览（树视图） → 确认应用 → 撤销
+Scan → Recognize content (OCR / documents) → Summarize + auto-tag → Review tags
+   → Auto-plan / manual rules → Preview (tree view) → Confirm & apply → Undo
 ```
 
 All processing happens on your machine. **No account, no cloud, no internet, no LLM API calls.**
 
 ---
 
-## 目录
+## Table of Contents
 
-1. [功能特性](#功能特性)
-2. [支持的格式](#支持的格式)
-3. [系统要求](#系统要求)
-4. [安装](#安装)
-5. [运行](#运行)
-6. [使用流程](#使用流程)
-7. [标签体系](#标签体系)
-8. [组织规则](#组织规则)
-9. [安全与撤销](#安全与撤销)
-10. [图片 OCR（Tesseract）](#图片-ocrtesseract)
-11. [测试与开发](#测试与开发)
-12. [项目结构](#项目结构)
-13. [常见问题](#常见问题)
+1. [Features](#features)
+2. [Supported Formats](#supported-formats)
+3. [System Requirements](#system-requirements)
+4. [Installation](#installation)
+5. [Running](#running)
+6. [Workflow](#workflow)
+7. [Tag System](#tag-system)
+8. [Organization Rules](#organization-rules)
+9. [Safety & Undo](#safety--undo)
+10. [Image OCR (Tesseract)](#image-ocr-tesseract)
+11. [Testing & Development](#testing--development)
+12. [Project Layout](#project-layout)
+13. [FAQ](#faq)
 
 ---
 
-## 功能特性
+## Features
 
-| 模块 | 能力 |
+| Module | Capability |
 | --- | --- |
-| **扫描** | 递归遍历任意目录，自动过滤隐藏文件 / 系统目录；后台线程不阻塞 UI |
-| **内容识别** | 纯文本 / 代码 / Markdown；PDF；Word；PowerPoint；Excel；图片 OCR；压缩包成员列表；音视频元数据 |
-| **自动概述** | 从内容里抽关键词 + 首段，生成一句可读 summary |
-| **自动标签** | 系统标签（按元数据确定性生成） + 学习标签（基于 TF-IDF 的本地分类器） |
-| **标签审核** | 增删改用户标签；冲突时系统标签按首写获胜保持只读 |
-| **自动规划** | 一键按「最佳标签 / 类型 / 年份 / 扩展名」生成多层文件夹结构 |
-| **手动规则** | 任意组合 `tag / type / extension / year_created / year_modified` 维度，按目录层级建模 |
-| **预览** | 旧路径 → 新路径树视图 + 冲突 / 重复 / 低置信度预警 |
-| **安全应用** | 弹窗二次确认；不覆盖、不静默改名、不删除原文件 |
-| **撤销** | 每次组织操作生成可逆记录，「编辑 → 撤销」一键回滚最近一次操作 |
+| **Scan** | Recursively walk any folder; auto-skip hidden files / system dirs; runs in a background thread, never blocks the UI |
+| **Content Recognition** | Plain text / code / Markdown; PDF; Word; PowerPoint; Excel; image OCR; archive member listings; audio/video metadata |
+| **Auto-Summary** | Pulls leading paragraph + keywords from extracted text to produce a one-line summary |
+| **Auto-Tag** | System tags (deterministic from metadata) + learned tags (local TF-IDF classifier) |
+| **Tag Review** | Add / remove / edit user tags; on conflict, first-write wins so system tags stay read-only |
+| **Auto-Plan** | One click generates multi-level folder layout from "best tag / type / year / extension" |
+| **Manual Rules** | Compose `tag / type / extension / year_created / year_modified` dimensions in any order as directory levels |
+| **Preview** | Old path → new path tree view + conflict / duplicate / low-confidence warnings |
+| **Safe Apply** | Confirmation dialog before moving; never overwrites, never silently renames, never deletes source files |
+| **Undo** | Every organization operation creates a reversible record; **Edit → Undo** restores the last operation with one click |
 
 ---
 
-## 支持的格式
+## Supported Formats
 
-| 类别 | 扩展名 |
+| Category | Extensions |
 | --- | --- |
-| **文档** | `.pdf`, `.doc`, `.docx`, `.rtf`, `.odt`, `.pages` |
-| **表格** | `.xls`, `.xlsx`, `.ods`, `.csv` |
-| **演示** | `.ppt`, `.pptx`, `.key`, `.odp` |
-| **图片（OCR）** | `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.tiff`, `.tif`, `.heic`, `.jfif` |
-| **压缩包** | `.zip`, `.tar`, `.tgz`, `.gz`, `.bz2`, `.xz` |
-| **音视频（仅元数据）** | `.mp3`, `.wav`, `.flac`, `.aac`, `.m4a`, `.ogg`, `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`, `.m4v` |
-| **纯文本 / 代码** | `.txt`, `.md`, `.markdown`, `.rst`, `.csv`, `.tsv`, `.log`, `.json`, `.xml`, `.html`, `.htm`, `.py`, `.js`, `.ts`, `.java`, `.c`, `.h`, `.cpp`, `.go`, `.rs`, `.yml`, `.yaml`, `.ini`, `.cfg`, `.toml`, `.sql` |
+| **Documents** | `.pdf`, `.doc`, `.docx`, `.rtf`, `.odt`, `.pages` |
+| **Spreadsheets** | `.xls`, `.xlsx`, `.ods`, `.csv` |
+| **Presentations** | `.ppt`, `.pptx`, `.key`, `.odp` |
+| **Images (OCR)** | `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.tiff`, `.tif`, `.heic`, `.jfif` |
+| **Archives** | `.zip`, `.tar`, `.tgz`, `.gz`, `.bz2`, `.xz` |
+| **Audio / Video (metadata only)** | `.mp3`, `.wav`, `.flac`, `.aac`, `.m4a`, `.ogg`, `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`, `.m4v` |
+| **Plain text / code** | `.txt`, `.md`, `.markdown`, `.rst`, `.csv`, `.tsv`, `.log`, `.json`, `.xml`, `.html`, `.htm`, `.py`, `.js`, `.ts`, `.java`, `.c`, `.h`, `.cpp`, `.go`, `.rs`, `.yml`, `.yaml`, `.ini`, `.cfg`, `.toml`, `.sql` |
 
-不可解析或二进制文件会被忽略但仍出现在扫描列表里（仅做路径 / 元数据索引）。
-
----
-
-## 系统要求
-
-- **操作系统**：macOS / Linux / Windows 均可
-- **Python**：3.11 或更高（项目使用 `requires-python = ">=3.11"`）
-- **磁盘**：几百 MB（依赖占大头的是 PyMuPDF + PySide6）
-- **内存**：扫描 + ML 分类在后台线程跑，普通笔记本足够
-- **可选**：
-  - [Tesseract OCR](#图片-ocrtesseract) —— 图片文字识别
-  - `tesseract-lang` / `chi_sim` 中文语言包
+Unparseable or binary files are silently ignored for content extraction but still appear in the scan list (path / metadata only).
 
 ---
 
-## 安装
+## System Requirements
 
-仓库自带 `pyproject.toml` + `uv.lock`，**推荐用 [uv](https://docs.astral.sh/uv/)**：
+- **OS**: macOS / Linux / Windows
+- **Python**: 3.11 or newer (`requires-python = ">=3.11"`)
+- **Disk**: a few hundred MB (PyMuPDF + PySide6 are the biggest)
+- **RAM**: scan + ML classification run on a background thread; any modern laptop is enough
+- **Optional**:
+  - [Tesseract OCR](#image-ocr-tesseract) — for image text recognition
+  - `tesseract-lang` / `chi_sim` Chinese language pack
+
+---
+
+## Installation
+
+The repo ships with `pyproject.toml` + `uv.lock`. **[uv](https://docs.astral.sh/uv/) is recommended**:
 
 ```bash
-# 1. 安装 uv（任选其一）
-brew install uv                  # macOS
-curl -LsSf https://astral.sh/uv/install.sh | sh   # 任意系统
+# 1. Install uv (pick one)
+brew install uv                                       # macOS
+curl -LsSf https://astral.sh/uv/install.sh | sh       # any OS
 
-# 2. 克隆并进入项目
+# 2. Clone and enter the project
 git clone <repo-url> Sorter
 cd Sorter
 
-# 3. 同步依赖（自动创建 .venv 并写入 uv.lock 锁定的版本）
+# 3. Sync dependencies (creates .venv and pins to uv.lock)
 uv sync
 ```
 
-不想用 uv 也可以用 pip：
+If you prefer plain pip:
 
 ```bash
 python3.11 -m venv .venv
@@ -99,124 +101,124 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-> `requirements.txt` 是 runtime 依赖的精简版；`pyproject.toml` 还声明了 `pytest` 等 dev 依赖。开发场景请用 `uv sync`。
+> `requirements.txt` is a slim runtime-only list. `pyproject.toml` also declares dev deps (e.g. `pytest`). For dev work, use `uv sync`.
 
-### 可选：安装 Tesseract（OCR）
+### Optional: install Tesseract (OCR)
 
-图片里的文字识别走 Tesseract；不装也能用，只是图片静默跳过 OCR。
+Image text recognition goes through Tesseract. Without it the rest of the app still works — images simply skip OCR silently.
 
 ```bash
 # macOS
 brew install tesseract
-brew install tesseract-lang       # 中文 + 多语言（含 chi_sim）
+brew install tesseract-lang       # Chinese + other langs (incl. chi_sim)
 
 # Ubuntu / Debian
 sudo apt update
 sudo apt install tesseract-ocr tesseract-ocr-chi-sim
 
 # Windows
-# 从 https://github.com/UB-Mannheim/tesseract/wiki 下载安装包，
-# 并把 tesseract.exe 所在目录加到 PATH
+# Download from https://github.com/UB-Mannheim/tesseract/wiki
+# and add the tesseract.exe directory to PATH
 ```
 
-详见 [图片 OCR](#图片-ocrtesseract)。
+See [Image OCR (Tesseract)](#image-ocr-tesseract) for details.
 
 ---
 
-## 运行
+## Running
 
 ```bash
 # uv
 uv run python main.py
 
-# 经典 venv
+# plain venv
 source .venv/bin/activate
 python main.py
 ```
 
-启动后：
+After launch:
 
-1. **菜单 → 文件 → 打开目录…** 选一个要整理的文件夹
-2. 四个工作流视图依次推进：扫描 → 标签审核 → 规则（可选）→ 预览
-3. 应用前一定会经过变更预览 + 二次确认
+1. **Menu → File → Open Folder…** pick the folder you want to organize
+2. The four workflow views advance in turn: Scan → Tag Review → Rules (optional) → Preview
+3. Files only move after the preview step + a confirmation dialog
 
-数据库默认位置：
+Default database location:
 
 ```text
 ~/.sorter/sorter.db
 ```
 
-想换位置可以直接改 `main.py` 里 `_default_db_path()`。
+To relocate it, edit `_default_db_path()` in `main.py`.
 
-### 菜单速览
+### Menu Cheat Sheet
 
-| 菜单 | 项 | 作用 |
+| Menu | Item | Effect |
 | --- | --- | --- |
-| 文件 | 打开目录… | 选择扫描根目录 |
-| 文件 | 退出 | 关闭应用 |
-| 编辑 | 撤销 | 恢复上一次组织操作（成功后菜单项自动启用） |
-| 组织 | 手动规则… | 打开规则编辑器（高级） |
-| 帮助 | 关于 | 版本 / 设计理念 |
+| File | Open Folder… | Choose scan root |
+| File | Quit | Close the app |
+| Edit | Undo | Restore the last organization operation (the menu item auto-enables when one is available) |
+| Organize | Manual Rules… | Open the rule editor (advanced) |
+| Help | About | Version / design notes |
 
 ---
 
-## 使用流程
+## Workflow
 
-#### ① 扫描
+#### ① Scan
 
-后台线程递归遍历目录，按 `os.stat` 收集 size / mtime / ctime，并写入 SQLite。隐藏文件与系统目录自动跳过。
+A background thread recursively walks the directory, collects `size / mtime / ctime` from `os.stat`, and writes everything to SQLite. Hidden files and system directories are filtered out automatically.
 
-#### ② 内容识别
+#### ② Content Recognition
 
-对每个文件尽力提取纯文本 + 元数据：
+For each file we do our best to extract plain text + structured metadata:
 
-- 纯文本 / 代码：直接按 UTF-8 读（`errors="replace"` 兜底）
-- PDF / Word / PPT / Excel：各用对应库逐页 / 逐段抽取
-- 图片：Tesseract OCR
-- 压缩包：枚举成员名
-- 音视频：用 `mutagen` 读元数据（无文本）
+- **Plain text / code**: read as UTF-8 (`errors="replace"` as a safety net)
+- **PDF / Word / PPT / Excel**: corresponding library extracts page-by-page / element-by-element
+- **Images**: Tesseract OCR
+- **Archives**: enumerate member names
+- **Audio / video**: metadata via `mutagen` (no transcript)
 
-失败或不支持 → 返回 `None` / `{}`，**绝不抛异常打断主流程**。
+Failure or unsupported → return `None` / `{}`. **Never raises into the main flow.**
 
-#### ③ 概述 + 标签
+#### ③ Summary + Tags
 
-- **概述**：从提取出的文本里抽首段 + 关键词评分
-- **系统标签**：扩展名 → `pdf` / `image` / `archive` / ...；大小 ≥ 100 MiB → `large-file`；30 天内修改 → `recently-modified`；内容哈希重复 → `duplicate`；父目录名
-- **学习标签**：基于「用户修正样本」训练的 TF-IDF + 线性分类器（详见 `app/ml/`）
+- **Summary**: leading paragraph + keyword scoring from the extracted text
+- **System tags**: extension → `pdf` / `image` / `archive` / ...; size ≥ 100 MiB → `large-file`; modified within 30 days → `recently-modified`; duplicate content hash → `duplicate`; parent directory name
+- **Learned tags**: a TF-IDF + linear classifier trained on user-correction samples (see `app/ml/`)
 
-#### ④ 标签审核
+#### ④ Tag Review
 
-可对任意文件增删改用户标签。系统标签作为只读 chip 展示，用户标签与系统标签冲突时**首写获胜**（避免反复覆盖）。
+Add / remove / edit user tags per file. System tags show as read-only chips. When a user tag collides with a system tag, **first-write wins** to avoid thrash on re-render.
 
-#### ⑤ 自动规划 / 手动规则
+#### ⑤ Auto-Plan / Manual Rules
 
-- **自动规划**（默认）：选「按标签 + 类型」两个维度，按每文件最佳标签（user > learned > 类型）生成多层文件夹
-- **手动规则**：用「组织 → 手动规则…」打开规则编辑器，把 `tag / type / extension / year_created / year_modified` 任意维度按目录层级排列
+- **Auto-plan** (default): pick "tag + type" dimensions; each file's best tag (user > learned > type) becomes its folder
+- **Manual rules**: open via **Organize → Manual Rules…**; stack `tag / type / extension / year_created / year_modified` as directory levels
 
-#### ⑥ 预览
+#### ⑥ Preview
 
-可视化「旧路径 → 新路径」树视图，提示：
+Tree-view of "old path → new path" with warnings:
 
-- 文件名冲突
-- 内容重复
-- 低置信度标签
+- Filename conflicts
+- Duplicate content
+- Low-confidence tags
 
-#### ⑦ 应用 + 撤销
+#### ⑦ Apply + Undo
 
-- 预览点「应用变更」→ 弹窗二次确认 → 后台线程移动文件 → 写一条可逆记录
-- 「编辑 → 撤销」一键回滚最近一次操作（失败的恢复在弹窗里逐条提示）
+- Click **Apply Changes** in the preview → confirmation dialog → background thread moves files → a reversible record is written
+- **Edit → Undo** rolls back the most recent operation; partial failures are listed in a dialog
 
 ---
 
-## 标签体系
+## Tag System
 
-| 来源 | 示例 | 谁写的 |
+| Source | Examples | Who writes |
 | --- | --- | --- |
-| **系统标签**（只读） | `pdf`, `image`, `archive`, `large-file`, `recently-modified`, `duplicate` | 程序按元数据确定性生成 |
-| **学习标签** | `mathematics`, `physics`, `finance`, `travel` | 本地 ML 分类器 |
-| **用户标签** | `important`, `semester-1`, `MIT` | 你在标签审核视图里手动加 |
+| **System tags** (read-only) | `pdf`, `image`, `archive`, `large-file`, `recently-modified`, `duplicate` | The program, deterministically from metadata |
+| **Learned tags** | `mathematics`, `physics`, `finance`, `travel` | Local ML classifier |
+| **User tags** | `important`, `semester-1`, `MIT` | You, in the Tag Review view |
 
-概念层级：
+Conceptually:
 
 ```text
 File
@@ -227,146 +229,148 @@ File
 
 ---
 
-## 组织规则
+## Organization Rules
 
-规则 = 按顺序求值的目录层级列表。支持五种维度：
+A rule is an ordered list of directory levels. Five dimensions are supported:
 
-| `kind` | 行为 | 失败兜底 |
+| `kind` | Behavior | Failure fallback |
 | --- | --- | --- |
-| `tag` | 文件必须拥有该标签；目录段 = 清洗后的标签名 | 文件无标签 → 整条规则不适用，文件不动 |
-| `type` | 扩展名 → 类别（pdf / image / ...） | 类别 `other` → 跳到下一层 |
-| `extension` | 按扩展名 | 空扩展名 → 跳过 |
-| `year_created` | 创建年份 | 时间戳缺失 → 跳过 |
-| `year_modified` | 修改年份 | 时间戳缺失 → 跳过 |
+| `tag` | File must have this tag; segment = sanitized tag name | No tag → rule does not apply, file stays put |
+| `type` | Extension → category (pdf / image / ...) | Category `other` → drop this level |
+| `extension` | By extension | Empty ext → drop this level |
+| `year_created` | Year of creation | Missing timestamp → drop this level |
+| `year_modified` | Year of modification | Missing timestamp → drop this level |
 
-**整体规则 = all-or-nothing**：任一 `tag` 层缺失 → 该文件不动；其它维度缺失只跳过该层目录。
+**The whole rule is all-or-nothing for `tag`**: if any `tag` level is missing, the file is not moved. Missing non-`tag` levels only drop that directory layer.
 
-目录段清洗：去除控制字符、空段 → `其他` / `未知` 兜底，避免空目录名。
+Segment sanitization: strips control characters and empty parts; falls back to `其他` / `未知` (`Other` / `Unknown`) to avoid empty folder names.
 
 ---
 
-## 安全与撤销
+## Safety & Undo
 
-| 不做 | 说明 |
+| Never does | Why |
 | --- | --- |
-| ❌ 静默覆盖 | 同名冲突会进 `unsafe_moves`，预览里高亮，**默认不进应用列表** |
-| ❌ 静默改名 | 不存在 |
-| ❌ 静默删除 | 不存在 |
+| ❌ Silently overwrite | Same-name conflicts land in `unsafe_moves`, highlighted in the preview, **excluded from apply by default** |
+| ❌ Silently rename | Not implemented |
+| ❌ Silently delete | Not implemented |
 
-每次「应用变更」成功都会写一条 `operations` 记录（`old` → `new`），点「编辑 → 撤销」触发回滚。撤销语义：
+Every successful **Apply Changes** writes an `operations` row (`old` → `new`). **Edit → Undo** triggers a rollback:
 
-- 逐文件尝试恢复到 `old` 路径
-- 个别恢复失败 → 记录标记为已撤销（避免阻塞更早的操作），失败原因在弹窗里逐条提示
-- 记录全空 → 撤销按钮自动置灰
-
----
-
-## 图片 OCR（Tesseract）
-
-- **未安装 tesseract** → 图片静默跳过 OCR（其它功能不受影响）
-- **已装但缺 `chi_sim`** → 中文图片用英文识别，应用内启动时弹一次提示
-- **完全装好** → 中英文双语识别，识别结果进内容特征和概述
-
-自动检测路径：先 `shutil.which("tesseract")`，再兜底常见安装目录（`/opt/homebrew/bin`、`/usr/local/bin`、`/usr/bin`）。
+- Try to restore each file to its `old` path
+- On partial failure the record is still marked as undone (so it doesn't block earlier operations); failures are surfaced in a dialog
+- When no records remain, the Undo button auto-disables
 
 ---
 
-## 测试与开发
+## Image OCR (Tesseract)
+
+- **Tesseract not installed** → images silently skip OCR (everything else keeps working)
+- **Installed but `chi_sim` missing** → Chinese images fall back to English recognition; a one-time hint is shown at startup
+- **Fully installed** → bilingual recognition feeds content features and the summary
+
+Auto-detect path: `shutil.which("tesseract")` first, then fallback common install dirs (`/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`).
+
+---
+
+## Testing & Development
 
 ```bash
-# 安装 dev 依赖（uv 会自动拉 pytest）
+# Install dev dependencies (uv pulls pytest automatically)
 uv sync
 
-# 跑全部测试
+# Run all tests
 uv run python -m pytest tests/
 
-# 单跑某个文件
+# Single file
 uv run python -m pytest tests/test_scanner.py -q
 
-# 看覆盖率
+# With coverage
 uv run python -m pytest tests/ --cov=app
 ```
 
-测试覆盖：
+Test coverage:
 
-- `tests/test_scanner.py` — 递归扫描、过滤
-- `tests/test_extractor.py` / `test_extractor_content.py` — 各格式文本提取
-- `tests/test_tagging_learned.py` / `test_classifier.py` / `test_features.py` / `test_training.py` — ML 管线
-- `tests/test_summarizer.py` / `test_summaries_db.py` — 概述生成
-- `tests/test_rules.py` / `test_organizer.py` / `test_preview.py` / `test_history.py` — 组织 / 预览 / 撤销
-- `tests/test_gui_smoke.py` / `test_preview_view.py` / `test_formatting.py` — GUI 烟测
+- `tests/test_scanner.py` — recursive scan, filtering
+- `tests/test_extractor.py` / `test_extractor_content.py` — per-format text extraction
+- `tests/test_tagging_learned.py` / `test_classifier.py` / `test_features.py` / `test_training.py` — ML pipeline
+- `tests/test_summarizer.py` / `test_summaries_db.py` — summary generation
+- `tests/test_rules.py` / `test_organizer.py` / `test_preview.py` / `test_history.py` — organization / preview / undo
+- `tests/test_gui_smoke.py` / `test_preview_view.py` / `test_formatting.py` — GUI smoke tests
 
-CI 友好：纯 `pytest`，无外部服务依赖；ML 用确定性小样本。
+CI-friendly: plain `pytest`, no external services; ML uses deterministic small samples.
 
 ---
 
-## 项目结构
+## Project Layout
 
 ```text
 Sorter/
-├── main.py                       # 入口
-├── pyproject.toml                # 项目元数据 + 依赖
-├── uv.lock                       # 锁定的依赖版本
-├── requirements.txt              # runtime 依赖（精简版）
+├── main.py                       # Entry point
+├── pyproject.toml                # Project metadata + deps
+├── uv.lock                       # Locked dependency versions
+├── requirements.txt              # Runtime deps (slim)
+├── README.md                     # English (this file)
+├── README.zh.md                  # 中文
 ├── app/
-│   ├── core/                     # 业务核心
-│   │   ├── scanner.py            #   文件扫描
-│   │   ├── metadata.py           #   元数据 + 重复检测
-│   │   ├── extractor.py          #   文本 / 元数据提取（含 OCR）
-│   │   ├── tagging.py            #   系统 + 学习标签
-│   │   ├── summarizer.py         #   自动概述
-│   │   ├── organizer.py          #   规则模型 + 安全移动
-│   │   ├── autoplan.py           #   自动规划
-│   │   ├── preview.py            #   预览生成（冲突 / 重复检测）
-│   │   └── history.py            #   操作记录 + 撤销
-│   ├── ml/                       # 本地机器学习
-│   │   ├── features.py           #   TF-IDF 特征
-│   │   ├── classifier.py         #   线性分类器
-│   │   └── training.py           #   用户修正样本训练
-│   ├── database/                 # SQLite 访问层
-│   │   ├── database.py           #   连接 + CRUD
-│   │   ├── models.py             #   表结构
-│   │   ├── queries.py            #   业务查询
-│   │   ├── rules.py              #   组织规则持久化
-│   │   └── summaries.py          #   概述持久化
-│   └── gui/                      # PySide6 界面
-│       ├── main_window.py        #   主窗口（工作流中枢）
-│       ├── scan_view.py          #   ① 扫描
-│       ├── tag_view.py           #   ② 标签审核
-│       ├── rules_view.py         #   ③ 规则编辑器
-│       ├── preview_view.py       #   ④ 预览
-│       ├── workers.py            #   后台线程
-│       ├── widgets.py            #   复用 widget
-│       ├── theme.py              #   扁平 Fusion 主题
-│       └── formatting.py         #   时间 / 大小格式化
-└── tests/                        # pytest 测试集
+│   ├── core/                     # Business core
+│   │   ├── scanner.py            #   File scan
+│   │   ├── metadata.py           #   Metadata + duplicate detection
+│   │   ├── extractor.py          #   Text / metadata extraction (incl. OCR)
+│   │   ├── tagging.py            #   System + learned tags
+│   │   ├── summarizer.py         #   Auto summary
+│   │   ├── organizer.py          #   Rule model + safe move
+│   │   ├── autoplan.py           #   Auto-plan
+│   │   ├── preview.py            #   Preview generation (conflicts / duplicates)
+│   │   └── history.py            #   Operation records + undo
+│   ├── ml/                       # Local machine learning
+│   │   ├── features.py           #   TF-IDF features
+│   │   ├── classifier.py         #   Linear classifier
+│   │   └── training.py           #   Train on user-correction samples
+│   ├── database/                 # SQLite access layer
+│   │   ├── database.py           #   Connection + CRUD
+│   │   ├── models.py             #   Table schemas
+│   │   ├── queries.py            #   Business queries
+│   │   ├── rules.py              #   Persisted organization rules
+│   │   └── summaries.py          #   Persisted summaries
+│   └── gui/                      # PySide6 UI
+│       ├── main_window.py        #   Main window (workflow hub)
+│       ├── scan_view.py          #   ① Scan
+│       ├── tag_view.py           #   ② Tag review
+│       ├── rules_view.py         #   ③ Rule editor
+│       ├── preview_view.py       #   ④ Preview
+│       ├── workers.py            #   Background threads
+│       ├── widgets.py            #   Reusable widgets
+│       ├── theme.py              #   Flat Fusion theme
+│       └── formatting.py         #   Time / size formatting
+└── tests/                        # pytest suite
 ```
 
 ---
 
-## 常见问题
+## FAQ
 
-**Q：扫描后我的 PDF 没被识别成 `pdf` 标签？**
-A：检查扩展名是否正确（必须小写且带 `.`，例如 `.PDF` 会被归一化为 `.pdf`）。实在不行看 `~/.sorter/sorter.db` 的 `files` 表。
+**Q: My PDF wasn't tagged `pdf` after the scan.**
+A: Check that the extension is correct (lowercase, with a leading dot; `.PDF` is normalized to `.pdf`). You can also inspect the `files` table in `~/.sorter/sorter.db`.
 
-**Q：撤销按钮是灰的？**
-A：还没执行过「应用变更」，或者最近一次操作已经撤销过了。撤销只回滚最近一次。
+**Q: The Undo button is greyed out.**
+A: Either no **Apply Changes** has succeeded yet, or the most recent one has already been undone. Undo only rolls back the latest operation.
 
-**Q：中文图片 OCR 不准？**
-A：需要 `tesseract-lang`（macOS）或 `tesseract-ocr-chi-sim`（Ubuntu）。详见上文 OCR 安装一节。
+**Q: OCR on Chinese images is inaccurate.**
+A: You need `tesseract-lang` (macOS) or `tesseract-ocr-chi-sim` (Ubuntu). See the OCR installation section above.
 
-**Q：可以远程用吗？**
-A：不能，也不打算支持。设计就是**纯本机** —— 不开端口、不联网、不上传文件。
+**Q: Can I use this remotely?**
+A: No, and there are no plans to support it. The design is **strictly local** — no open ports, no network calls, no file uploads.
 
-**Q：数据库能换位置吗？**
-A：可以。改 `main.py` 的 `_default_db_path()` 即可。
+**Q: Can I move the database?**
+A: Yes. Edit `_default_db_path()` in `main.py`.
 
-**Q：会动我没选中的文件吗？**
-A：不会。只会移动扫描根目录下的文件；新目录在根目录内创建；同名冲突默认不进应用列表。
+**Q: Will it touch files I didn't select?**
+A: No. Only files inside the scan root are moved; new folders are created inside the root; same-name conflicts default to "not in the apply list".
 
 ---
 
-## 设计哲学（摘自 `PROJECT.md`）
+## Design Philosophy (excerpt from `PROJECT.md`)
 
 > Machine understands the files.
 > User defines the organization.
@@ -374,10 +378,10 @@ A：不会。只会移动扫描根目录下的文件；新目录在根目录内�
 > User approves the operation.
 > Application safely applies the changes.
 
-ML 只负责「这是什么文件」，目录结构永远由你来定 —— 自动规划也只是一个默认值，可以随时改回手动规则。
+ML only answers "what is this file?"; the directory structure is always yours to decide — auto-plan is just a sensible default you can swap for manual rules at any time.
 
 ---
 
-## 许可
+## License
 
-见 `LICENSE`。
+See `LICENSE`.
